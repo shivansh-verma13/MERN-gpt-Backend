@@ -1,12 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, cpSync } from "node:fs";
+import { mkdtempSync, cpSync } from "node:fs";
 import { resolve } from "node:path";
 
-const staging = resolve(".interview-release-web");
-if (existsSync(staging))
-  throw new Error(
-    ".interview-release-web already exists; review the staging checkout before rebuilding.",
-  );
+// Netlify restores ignored build folders between builds. Use an isolated checkout
+// each time so cached state cannot block a release or alter the pinned revision.
+const staging = mkdtempSync(resolve(".interview-release-web-"));
 const npm = process.env.npm_execpath;
 if (!npm) throw new Error("Run through npm run prepare:web");
 execFileSync(

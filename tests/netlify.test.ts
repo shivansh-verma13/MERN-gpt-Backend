@@ -4,7 +4,37 @@ import { createApp } from "../src/app.js";
 import { JsonStore } from "../src/store.js";
 // Build first: deployment adapter imports the compiled runtime but never starts a listener.
 // @ts-expect-error JavaScript function adapter has no declaration file.
-import { createFunction } from "../netlify/functions/api.mjs";
+import { createFunction, createProxy } from "../netlify/functions/api.mjs";
+test("Render proxy preserves secure cookies, CSRF, audio bytes and bounded routing", async () => {
+  let captured: { url: string; options: RequestInit } | undefined;
+  const fn = createProxy("https://interview-test.onrender.com", async (url: string, options: RequestInit) => {
+    captured = { url, options };
+    return new Response('{"transcript":"synthetic answer"}', { status: 200, headers: {
+      "Content-Type":"application/json", "Set-Cookie":"interview_session=synthetic; Secure; HttpOnly; SameSite=Lax; Path=/",
+    }});
+  });
+  const audio = Buffer.from([0, 1, 255, 3]);
+  const response = await fn({ path:"/.netlify/functions/api/interviews/synthetic/transcribe", httpMethod:"POST",
+    headers:{Origin:"https://interview-test.netlify.app",Cookie:"interview_session=synthetic","X-CSRF-Token":"csrf","X-Audio-Consent":"true","Content-Type":"audio/webm",Authorization:"ignored"},
+    body:audio.toString("base64"),isBase64Encoded:true,queryStringParameters:{limit:"2"} });
+  assert.equal(captured?.url,"https://interview-test.onrender.com/api/interviews/synthetic/transcribe?limit=2");
+  assert.deepEqual(captured?.options.body,audio);
+  assert.equal((captured?.options.headers as Record<string,string>)["X-CSRF-Token"],"csrf");
+  assert.equal((captured?.options.headers as Record<string,string>).Authorization,undefined);
+  assert.equal(response.headers["Cache-Control"],"no-store");
+  assert.match(response.multiValueHeaders["Set-Cookie"][0],/Secure; HttpOnly/);
+  assert.equal(JSON.parse(Buffer.from(response.body,"base64").toString()).transcript,"synthetic answer");
+  assert.equal((await fn({path:"//foreign.example/api",httpMethod:"GET"})).statusCode,404);
+  assert.throws(()=>createProxy("http://interview-test.onrender.com"));
+  assert.throws(()=>createProxy("https://foreign.example"));
+});
+test("Render proxy returns a recoverable error without leaking upstream failures", async () => {
+  const fn=createProxy("https://interview-test.onrender.com",async()=>{throw new Error("private upstream details");});
+  const response=await fn({path:"/health",httpMethod:"GET"});
+  assert.equal(response.statusCode,503);
+  assert.equal(response.headers["Retry-After"],"5");
+  assert.ok(!response.body.includes("private upstream details"));
+});
 test("Netlify adapter preserves API routes, secure cookies, CSRF, ownership and base64 audio parsing", async () => {
   const store = await new JsonStore().init();
   const origin = "https://interview-test.netlify.app";

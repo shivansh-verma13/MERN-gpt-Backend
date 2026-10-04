@@ -2,10 +2,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, cpSync } from "node:fs";
 import { resolve } from "node:path";
 
-const staging = resolve(".release-web");
+const staging = resolve(".interview-release-web");
 if (existsSync(staging))
   throw new Error(
-    ".release-web already exists; review the staging checkout before rebuilding.",
+    ".interview-release-web already exists; review the staging checkout before rebuilding.",
   );
 const npm = process.env.npm_execpath;
 if (!npm) throw new Error("Run through npm run prepare:web");
@@ -15,12 +15,33 @@ execFileSync(
     "clone",
     "--depth",
     "1",
-    "--branch",
-    process.env.WEB_REF ?? "upgrade/briefcase-v2",
+    "--no-checkout",
     "https://github.com/shivansh-verma13/MERN-gpt.git",
     staging,
   ],
   { stdio: "inherit" },
+);
+execFileSync(
+  "git",
+  [
+    "fetch",
+    "--depth",
+    "1",
+    "origin",
+    process.env.WEB_REF ?? "upgrade/interview-lab",
+  ],
+  { cwd: staging, stdio: "inherit" },
+);
+execFileSync("git", ["checkout", "--detach", "FETCH_HEAD"], {
+  cwd: staging,
+  stdio: "inherit",
+});
+console.log(
+  "Building frontend revision " +
+    execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: staging,
+      encoding: "utf8",
+    }).trim(),
 );
 for (const args of [["ci"], ["run", "build"]])
   execFileSync(process.execPath, [npm, ...args], {

@@ -1,36 +1,27 @@
-# Briefcase: from generic chat to a research workspace
+# Interview Lab — case study
 
-## Problem and scope
+## Problem
 
-The paired MERN-gpt repositories offered generic provider chat, outdated SDK calls, tightly coupled presentation, and growing chat arrays on user documents. The frontend failed its build and the API lacked meaningful tests.
+The original MERN GPT projects demonstrated basic authenticated chat, but an open-ended chatbot did not communicate a specific user journey. A research-workspace iteration (Briefcase) was completed first; the owner then selected interview practice as a more understandable, relevant product direction.
 
-A substantial refactor preserves React/Vite, Express/MongoDB, strict TypeScript, useful assets, and Git history. Old source is retained under `legacy/`. Switching frameworks or adding vector databases and queues would create cost before this workload justified them.
+## Implemented release
 
-## Product improvements
+A résumé/job-context setup, three text questions, one optional follow-up, formative evidence-backed feedback, saved private history, deletion and Markdown review export. Responsive layouts use paper/indigo surfaces and an understated editorial coaching panel. There are clear empty, loading, cancellation, failure and completion states.
 
-Collect text sources, ask questions, inspect evidence, and revisit conversations. A distinctive cream/forest-green research desk replaces generic chatbot presentation. Synthetic project briefs support credential-free exploration and clearly disclose deterministic demo results.
+## Decisions
 
-## Decisions and trade-offs
+Keep React/Vite and Express/Mongo rather than changing frameworks. Reuse secure sessions, owner-scoped storage and quotas from the previous iteration. Use an explicit state/version model so browser retries cannot duplicate completed answers. Add Gemini via the official server SDK so OpenAI credits are optional. Exact-quote validation rejects invented evidence, but neither the application nor its demo claims to verify technical correctness or suitability for a job.
 
-- Separate sources, threads, sessions, and usage with owner-scoped authorization and indexed queries.
-- Opaque sessions, CSRF, bounded inputs/lists, atomic account/global budgets, and reliable failure states.
-- Five lexical excerpts for a bounded source library. Embeddings are future work only if measured misses justify them.
-- Structured provider output and exact quoted citations validated before persistence. No unchecked streaming or autonomous tools.
-- Consent, cancellation, request reuse, timeout, and token ceilings instead of a silent generic AI wrapper.
-- One-origin hosting simplifies cookies/CORS. Deploy both repositories together because the API changed.
+A complete synthetic demo works without provider credentials. It is labeled template/rubric output throughout; live AI is implemented separately and requires consent. Text-first context makes the first release bounded; PDF extraction, audio, voice bots, coding execution and interview scheduling are deferred.
 
-## Evidence
+## Evidence and limitations
 
-Five frontend tests, 13 backend tests including real temporary MongoDB, and eight deterministic evaluation cases pass. Chrome journeys verify persistence, citations, source operations, and responsive layouts. Current JavaScript is about 55KB gzip. No live model benchmark, user count, speed improvement, or hosted adoption is claimed.
+See VERIFICATION.md for actual test and browser results. There are no fabricated adoption metrics, hiring accuracy scores or live-model claims. Real model quality evaluation and hosted deployment await provider credentials and a persistent database/Node host. IP limits and in-flight locks assume one API replica.
 
-Quote matching proves provenance, not entailment. Lexical retrieval can miss paraphrases; follow-up questions are standalone. Public live accounts need stronger anti-abuse/recovery controls. Hosting and actual OpenAI evaluation are pending.
+## Portfolio copy
 
-## Portfolio-ready copy
-
-**Briefcase — Source-backed research workspace**
-
-Refactored a paired React/TypeScript and Express/MongoDB app into a private research workspace with persisted sources, conversations, and inspectable citations. Implemented server-side structured OpenAI integration, consent, cancellation, atomic usage budgets, owner authorization, and a clearly labeled credential-free demo. Verified mobile/desktop browser journeys, frontend/API tests, and real MongoDB integration behavior. Live provider and hosted deployment verification are pending.
+Interview Lab is a full-stack interview-practice product with résumé/job context, a bounded question-and-follow-up flow, saved sessions and answer-grounded formative feedback. Built with React, TypeScript, Express and MongoDB; includes a server-side Gemini adapter, consent, validated structured outputs, quotas and integration tests. The synthetic demo is verified locally; live AI and hosted deployment remain pending configuration.
 
 ## Next work
 
-Configure a new HTTPS preview with persistent MongoDB. Evaluate the actual model on grounded questions, conflicting evidence, and injection attempts; improve retrieval against observed misses. Add account recovery/verification and demo cleanup before broad public access. Upgrade the NotePad pair next as a separate product.
+Verify Gemini against a small synthetic labeled evaluation set; review feedback relevance and incorrect technical advice manually. Deploy a bounded preview with HTTPS/Mongo, then verify account and practice persistence end to end. Add PDF ingestion only if users need it. Keep voice and coding execution out of this release.

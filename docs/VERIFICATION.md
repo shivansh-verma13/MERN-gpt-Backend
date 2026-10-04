@@ -1,29 +1,30 @@
-# Verification — October 4, 2026
+# Verification — Interview Lab
 
-Environment: Windows, Node 22, local Chrome; API 5002 + Vite 5174. Compiled same-origin release also exercised on port 5003 using `node dist/index.js` and built frontend assets.
+Verified October 4, 2026 on Windows, Node 24.14, local Chrome and the built frontend served by the compiled Express API at http://localhost:5004. This is a local URL, not a hosted demo.
 
-## Baseline
+| Check                            | Result                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| npm install                      | Both repositories succeed; 0 reported vulnerabilities                                                                                                                                                                                                                                                                  |
+| npm run lint / typecheck / build | Both pass                                                                                                                                                                                                                                                                                                              |
+| Frontend tests                   | 7 pass: valid setup, consent, retry ID, draft retention, successful advance, safe text rendering, saved review                                                                                                                                                                                                         |
+| Backend tests                    | 12 pass: auth/CSRF/origin, 3+1 state transitions, replay/stale requests, isolation/deletion, quota/input limits, consent/global budget, provider failure/timeout/malformed plan, invented evidence rejection, in-flight concurrency, schema rules, JSON restart, authenticated Markdown export, and Mongo storage test |
+| Mongo test                       | Real MongoMemoryServer 7.0.14; indexes, foreign-owner isolation, atomic quota reservation, conditional version writes, unique creation IDs and restart persistence                                                                                                                                                     |
+| Deterministic evaluations        | 9/9: valid plan, duplicates, invented context, exact answer excerpts, invented evidence, unsupported praise, weak answer, follow-up permission, focus templates                                                                                                                                                        |
+| Browser journey                  | Demo entry → synthetic context → 3 primary questions + 1 follow-up → saved review; mid-round refresh resumes correctly; completed review survives API restart; history reopening, keeping a session and confirmed deletion verified                                                                                    |
+| File export                      | Real authenticated Markdown response saved by Chrome; inspected disclosure and answer content. Automation's transient download permission originally canceled downloads; keeping browser permission active verified the saved file                                                                                     |
+| Mobile menu                      | Open/close, Escape, focus return, background inert and closed-sidebar inert verified                                                                                                                                                                                                                                   |
+| Responsive                       | No horizontal overflow at 320, 375, 430, 768, 1024 and 1440px; actual desktop/mobile screenshots captured                                                                                                                                                                                                              |
+| Automated accessibility          | axe-core 4.12.1: 0 violations, 0 incomplete for setup and review at desktop and 375px                                                                                                                                                                                                                                  |
+| Reduced motion                   | Emulated preference honored; sidebar transition 0s                                                                                                                                                                                                                                                                     |
+| Browser console/errors           | No unexpected application errors observed during demo journey                                                                                                                                                                                                                                                          |
+| Bundle                           | Built JS 176.72KB / gzip 56.43KB; CSS 20.75KB / gzip 5.09KB (before formatting-only changes)                                                                                                                                                                                                                           |
 
-Original frontend build failed on unused React imports and missing syntax-highlighter types; lint contained a Fast Refresh warning. API built but its test script intentionally failed. Install audit reported 30 frontend and 29 backend advisories. Old source is retained under `legacy/`. No valid runtime before/after performance comparison was possible with the available original database/provider configuration.
+## Distinctions and limitations
 
-## Release checks
+Demo behavior and persistent local sessions were exercised with the real browser/API. Live provider paths use injected responses in tests; real Gemini/OpenAI calls have **not** been executed. Deterministic cases validate schema/evidence/rubric policies, not live model relevance, bias or technical accuracy. No Lighthouse, scale, hiring quality, cost savings or production adoption claims are made. No hosted deployment or Docker image was verified.
 
-- Frontend lint, strict typecheck, five Testing Library tests, production build pass.
-- Backend lint, strict typecheck, 13 tests, production build pass. One starts real MongoDB 7.0.14; other API tests use JSON storage or injected provider mocks.
-- Eight deterministic retrieval/citation evaluation cases pass. These are not generative quality scores.
-- Dependency audits reported zero active lockfile vulnerabilities on this date; historical dependencies remain recoverable in Git, excluded from runtime.
-- Frontend artifact approximately 170KB JS (55KB gzip), 21.5KB CSS (5.4KB gzip). This is bundle size, not a measured speed improvement.
+The initial local demo session limit was explicitly raised to 50 for browser testing. Committed defaults remain 10 requests/user/day, global 30 live attempts/day. A complete demo round uses 5 requests. Quotas count failed provider attempts conservatively.
 
-## Browser verification
+Remaining: Gemini key, dedicated Mongo deployment, HTTPS Node preview host, and live synthetic quality review. Single-instance locks/IP limits, text-only résumé import, no voice/PDF ingestion, no password recovery/email verification or automated retention. Existing production was not modified.
 
-Verified demo onboarding, source creation, refresh persistence, library search, source inspection, confirmed source deletion, quoted answer, and conversation history after refresh. Compiled same-origin release served actual built assets and saved/reopened a conversation. Browser error output was clean.
-
-Layouts checked at 320, 375, 768, 1024, and 1440px: no horizontal document overflow. Actual screenshots are in `docs/screenshots` in the frontend repository. Mobile menu opens; Escape closes and restores trigger focus. Native source dialogs support keyboard interaction. Reduced-motion CSS disables animations/transitions.
-
-Axe 4.12 reported zero detected violations on onboarding, desktop workspace, library, source dialog, and 375px workspace after contrast fixes. Single-character source count contrast and overlapping dialog text were inconclusive checks requiring manual review; their foregrounds are dark against cream. Automated scans do not establish full accessibility compliance.
-
-## Unverified
-
-Actual OpenAI quality/latency/cost, hosted infrastructure, provider retention settings, distributed concurrency, load capacity, and recovery drills. No Lighthouse score or adoption metrics are claimed. Docker scaffold is not built because no local daemon is available.
-
-GitHub Actions checks also passed on both published upgrade branches. The release helper was verified by cloning the frontend branch, installing its lockfile, building, and copying web assets. Docker remains unverified.
+Packaged same-origin release: `npm run prepare:web` passes with full WEB_REF=ea0e492bb71f5098f76797ff0e97674e1b7e3d26. Browser starts a practice session with the packaged frontend and compiled API. Use a full 40-character SHA when pinning a commit; abbreviated SHA fetches are unsupported. Frontend GitHub CI passed for that revision.

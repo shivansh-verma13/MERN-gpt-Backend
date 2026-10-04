@@ -1,16 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/app.js";
 import type { Config } from "../src/app.js";
 import { JsonStore } from "../src/store.js";
-import { retrieve } from "../src/retrieval.js";
-import { validateAnswer, answerQuestion } from "../src/ai.js";
 import { hashPassword, checkPassword } from "../src/auth.js";
-import { sampleSources } from "../src/demo.js";
+import {
+  demoPlan,
+  demoReview,
+  validatePlan,
+  validateReview,
+} from "../src/interview.js";
+import type { Interview, Profile } from "../src/interview.js";
 const origin = "http://localhost:5174";
 async function fixture(overrides: Partial<Config> = {}) {
   const store = await new JsonStore().init();
@@ -19,7 +23,7 @@ async function fixture(overrides: Partial<Config> = {}) {
     production: false,
     demo: false,
     mode: "demo",
-    dailyLimit: 4,
+    dailyLimit: 20,
     timeout: 100,
     ...overrides,
   });
@@ -75,586 +79,492 @@ async function fixture(overrides: Partial<Config> = {}) {
     },
   };
 }
-test("password hashes are salted and verify safely", async () => {
-  const a = await hashPassword("password-123");
-  const b = await hashPassword("password-123");
-  assert.notEqual(a, b);
-  assert.equal(await checkPassword("password-123", a), true);
-  assert.equal(await checkPassword("wrong", a), false);
+
+const profile: Profile = {
+  role: "Backend Engineer",
+  level: "early-career",
+  focus: "backend",
+  resume:
+    "Synthetic candidate built an Express API with MongoDB and tests. No client data or real credentials are used.",
+  job: "Build reliable Node APIs, validate inputs, enforce authorization and explain database query trade-offs.",
+};
+const start = (requestId = randomUUID(), consent = false) => ({
+  ...profile,
+  requestId,
+  consent,
 });
-test("authentication, origin checks, CSRF, duplicate accounts, logout and session expiry", async () => {
+const answer =
+  "I built the endpoint with validation because malformed requests should fail early. I tested ownership checks and measured query latency. Instead of caching immediately, I profiled database queries and checked the indexes before changing the design.";
+const submission = (
+  v: Interview,
+  requestId = randomUUID(),
+  consent = false,
+) => ({ answer, requestId, version: v.version, consent });
+test("salted password hashes, authentication, cookies, CSRF, origin checks and logout", async () => {
   const f = await fixture();
   try {
-    assert.equal((await f.call("/api/sources")).response.status, 401);
-    const u = await f.user("one@example.com");
+    const a = await hashPassword("password-123");
+    assert.notEqual(a, await hashPassword("password-123"));
+    assert.equal(await checkPassword("wrong", a), false);
+    assert.equal(await checkPassword("password-123", a), true);
+    assert.equal((await f.call("/api/interviews")).response.status, 401);
+    const u = await f.user("auth@example.com");
+    assert.match(u.cookie, /interview_session/);
     assert.equal(
       (await f.call("/api/auth/me", "GET", undefined, u)).data.user.id,
       u.id,
     );
     assert.equal(
       (
+        await f.call("/api/interviews", "POST", start(), u, {
+          "X-CSRF-Token": "wrong",
+        })
+      ).response.status,
+      403,
+    );
+    assert.equal(
+      (
+        await f.call("/api/interviews", "POST", start(), u, {
+          Origin: "https://evil.example",
+        })
+      ).response.status,
+      403,
+    );
+    assert.equal(
+      (
         await f.call("/api/auth/register", "POST", {
-          name: "Test",
-          email: "one@example.com",
+          name: "Another",
+          email: "auth@example.com",
           password: "correct-horse-123",
         })
       ).response.status,
       409,
     );
-    assert.equal(
-      (
-        await f.call("/api/auth/login", "POST", {
-          email: "one@example.com",
-          password: "incorrect-pass",
-        })
-      ).response.status,
-      401,
-    );
     const login = await f.call("/api/auth/login", "POST", {
-      email: "ONE@example.com",
+      email: "AUTH@example.com",
       password: "correct-horse-123",
     });
     assert.equal(login.response.status, 200);
     assert.match(login.response.headers.get("set-cookie")!, /HttpOnly/);
-    assert.match(login.response.headers.get("set-cookie")!, /SameSite=Lax/);
+    await f.call("/api/auth/logout", "POST", {}, u);
+    assert.equal(
+      (await f.call("/api/auth/me", "GET", undefined, u)).response.status,
+      401,
+    );
   } finally {
     await f.close();
   }
 });
-test("resource-level authorization hides other users sources and threads; logout revokes cookie", async () => {
+test("complete 3-question round with one follow-up, safe replay, stale writes and review", async () => {
   const f = await fixture();
   try {
-    const a = await f.user("a@example.com"),
-      b = await f.user("b@example.com");
-    const created = await f.call(
-      "/api/sources",
-      "POST",
-      {
-        title: "Private plan",
-        content: "Private source content for user A only.",
-      },
-      a,
-    );
-    assert.equal(created.response.status, 201);
+    const u = await f.user("flow@example.com");
+    const request = start();
+    let r = await f.call("/api/interviews", "POST", request, u);
+    assert.equal(r.response.status, 201);
+    let v = r.data as Interview;
+    const duplicate = await f.call("/api/interviews", "POST", request, u);
+    assert.equal(duplicate.data.id, v.id);
+    const first = submission(v);
+    r = await f.call("/api/interviews/" + v.id + "/answers", "POST", first, u);
+    assert.equal(r.response.status, 200);
+    v = r.data;
+    assert.equal(v.cursor, 0);
+    assert.ok(v.pendingFollowUp);
     assert.equal(
-      (await f.call("/api/sources", "GET", undefined, b)).data.items.length,
-      0,
-    );
-    assert.equal(
-      (await f.call("/api/sources/" + created.data.id, "DELETE", undefined, b))
-        .response.status,
-      404,
+      (await f.call("/api/interviews/" + v.id + "/answers", "POST", first, u))
+        .data.turns.length,
+      1,
     );
     assert.equal(
       (
         await f.call(
-          "/api/sources",
+          "/api/interviews/" + v.id + "/answers",
           "POST",
-          {
-            title: "Forbidden",
-            content: "This source must never be persisted.",
-          },
-          { ...a, csrf: "bad" },
+          { ...first, requestId: randomUUID() },
+          u,
         )
       ).response.status,
-      403,
+      409,
     );
+    for (let i = 0; i < 3; i++) {
+      r = await f.call(
+        "/api/interviews/" + v.id + "/answers",
+        "POST",
+        submission(v),
+        u,
+      );
+      assert.equal(r.response.status, 200);
+      v = r.data;
+    }
+    assert.equal(v.status, "completed");
+    assert.equal(v.cursor, 3);
+    assert.equal(v.turns.length, 4);
+    assert.equal(v.turns.filter((t) => t.kind === "follow-up").length, 1);
+    assert.match(r.data.report.disclaimer, /not a hiring decision/);
     assert.equal(
       (
         await f.call(
-          "/api/sources",
+          "/api/interviews/" + v.id + "/answers",
           "POST",
-          {
-            title: "Forbidden",
-            content: "This source must never be persisted.",
-          },
-          a,
-          { Origin: "https://evil.invalid" },
+          submission(v),
+          u,
         )
       ).response.status,
-      403,
-    );
-    const t = await f.call(
-      "/api/threads",
-      "POST",
-      { title: "Private thread" },
-      a,
+      409,
     );
     assert.equal(
-      (await f.call("/api/threads/" + t.data.id, "GET", undefined, b)).response
-        .status,
-      404,
+      (await f.call("/api/interviews", "GET", undefined, u)).data.items[0]
+        .answered,
+      3,
     );
+  } finally {
+    await f.close();
+  }
+});
+test("session isolation, bounded history and authorized deletion", async () => {
+  const f = await fixture();
+  try {
+    const a = await f.user("owner@example.com"),
+      b = await f.user("other@example.com");
+    const v = (await f.call("/api/interviews", "POST", start(), a)).data;
+    for (const method of ["GET", "DELETE"])
+      assert.equal(
+        (await f.call("/api/interviews/" + v.id, method, undefined, b)).response
+          .status,
+        404,
+      );
     assert.equal(
       (
         await f.call(
-          "/api/threads/" + t.data.id + "/questions",
+          "/api/interviews/" + v.id + "/answers",
           "POST",
-          { question: "private plan", requestId: randomUUID(), consent: false },
+          submission(v),
           b,
         )
       ).response.status,
       404,
     );
     assert.equal(
-      (await f.call("/api/auth/logout", "POST", {}, a)).response.status,
+      (await f.call("/api/interviews", "GET", undefined, b)).data.items.length,
+      0,
+    );
+    assert.equal(
+      (await f.call("/api/interviews?limit=1", "GET", undefined, a)).data.items
+        .length,
+      1,
+    );
+    assert.equal(
+      (await f.call("/api/interviews/" + v.id, "DELETE", undefined, a)).response
+        .status,
       200,
     );
     assert.equal(
-      (await f.call("/api/auth/me", "GET", undefined, a)).response.status,
-      401,
+      (await f.call("/api/interviews/" + v.id, "GET", undefined, a)).response
+        .status,
+      404,
     );
   } finally {
     await f.close();
   }
 });
-test("bounded validation, pagination, source caps and expired sessions", async () => {
-  const f = await fixture();
+test("invalid inputs and daily quotas do not silently create sessions", async () => {
+  const f = await fixture({ dailyLimit: 1 });
   try {
-    const a = await f.user("bounds@example.com");
-    assert.equal(
-      (await f.call("/api/sources", "POST", { title: "x", content: "tiny" }, a))
-        .response.status,
-      422,
-    );
+    const u = await f.user("quota@example.com");
     assert.equal(
       (
         await f.call(
-          "/api/sources",
+          "/api/interviews",
           "POST",
-          { title: "x", content: "x".repeat(17000) },
-          a,
+          { ...start(), resume: "short" },
+          u,
         )
       ).response.status,
       422,
     );
-    for (let i = 0; i < 99; i++)
-      await f.store.insert("threads", {
-        id: randomUUID(),
-        ownerId: a.id,
-        title: "Existing",
-        messages: [],
-        createdAt: "2026-10-04",
-        updatedAt: "2026-10-04",
-      });
-    const concurrent = await Promise.all([
-      f.call("/api/threads", "POST", { title: "Final slot" }, a),
-      f.call("/api/threads", "POST", { title: "Overflow" }, a),
-    ]);
-    assert.equal(concurrent.filter((r) => r.response.status === 201).length, 1);
     assert.equal(
-      (await f.store.find("threads", { ownerId: a.id }, 101)).length,
-      100,
-    );
-    for (let i = 0; i < 50; i++)
-      await f.store.insert("sources", {
-        id: randomUUID(),
-        ownerId: a.id,
-        title: "s" + i,
-        content: "bounded source test content",
-        createdAt: new Date().toISOString(),
-      });
-    assert.equal(
-      (await f.call("/api/sources?limit=5", "GET", undefined, a)).data.items
-        .length,
-      5,
+      (await f.call("/api/interviews", "POST", start(), u)).response.status,
+      201,
     );
     assert.equal(
-      (await f.call("/api/sources?limit=5", "GET", undefined, a)).data.hasMore,
-      true,
-    );
-    assert.equal(
-      (
-        await f.call(
-          "/api/sources",
-          "POST",
-          {
-            title: "Overflow",
-            content: "This exceeds the source count limit.",
-          },
-          a,
-        )
-      ).response.status,
-      409,
-    );
-    const sessions = await f.store.find("sessions", { ownerId: a.id }, 1);
-    await f.store.update(
-      "sessions",
-      sessions[0].id,
-      {},
-      { expiresAt: new Date(0) },
-    );
-    assert.equal(
-      (await f.call("/api/auth/me", "GET", undefined, a)).response.status,
-      401,
-    );
-  } finally {
-    await f.close();
-  }
-});
-test("demo source journey, quoted answer, durable thread, idempotency and daily cap", async () => {
-  const f = await fixture({ demo: true, dailyLimit: 2 });
-  try {
-    const session = await f.call("/api/auth/demo", "POST", {});
-    const a = {
-      cookie: session.response.headers.get("set-cookie")!.split(";")[0],
-      csrf: session.data.csrf,
-    };
-    const sources = (await f.call("/api/sources", "GET", undefined, a)).data
-      .items;
-    assert.equal(sources.length, 3);
-    const t = (await f.call("/api/threads", "POST", { title: "Launch" }, a))
-      .data;
-    const requestId = randomUUID();
-    const payload = {
-      question: "When is the pilot launch?",
-      requestId,
-      consent: false,
-    };
-    const result = await f.call(
-      "/api/threads/" + t.id + "/questions",
-      "POST",
-      payload,
-      a,
-    );
-    assert.equal(result.response.status, 200);
-    assert.equal(result.data.mode, "demo");
-    assert.ok(
-      result.data.citations.some((c: { quote: string }) =>
-        c.quote.includes("November 12"),
-      ),
-    );
-    const repeat = await f.call(
-      "/api/threads/" + t.id + "/questions",
-      "POST",
-      payload,
-      a,
-    );
-    assert.deepEqual(repeat.data, result.data);
-    assert.equal(
-      (await f.call("/api/threads/" + t.id, "GET", undefined, a)).data.messages
-        .length,
-      2,
-    );
-    assert.equal(
-      (
-        await f.call(
-          "/api/threads/" + t.id + "/questions",
-          "POST",
-          { ...payload, requestId: randomUUID() },
-          a,
-        )
-      ).response.status,
-      200,
-    );
-    assert.equal(
-      (
-        await f.call(
-          "/api/threads/" + t.id + "/questions",
-          "POST",
-          { ...payload, requestId: randomUUID() },
-          a,
-        )
-      ).response.status,
+      (await f.call("/api/interviews", "POST", start(), u)).response.status,
       429,
     );
-    assert.equal(
-      (await f.call("/api/threads", "GET", undefined, a)).data.items[0]
-        .messageCount,
-      4,
-    );
   } finally {
     await f.close();
   }
 });
-test("live provider requires consent; errors do not save partial turns", async () => {
+test("live provider requires consent and reserves global budget", async () => {
   let calls = 0;
   const f = await fixture({
     mode: "live",
-    generate: async () => {
+    globalDailyLimit: 1,
+    interviewGenerate: async (input) => {
       calls++;
-      throw new Error("provider failure");
+      return { output: demoPlan(input.profile), tokens: 30 };
     },
   });
   try {
-    const a = await f.user("provider@example.com");
-    await f.call(
-      "/api/sources",
-      "POST",
-      {
-        title: "Launch",
-        content: "The pilot launch is scheduled for November 12.",
-      },
-      a,
-    );
-    const t = (await f.call("/api/threads", "POST", { title: "Launch" }, a))
-      .data;
-    const path = "/api/threads/" + t.id + "/questions";
-    const payload = {
-      question: "When is the pilot launch?",
-      requestId: randomUUID(),
-      consent: false,
-    };
-    assert.equal((await f.call(path, "POST", payload, a)).response.status, 422);
-    assert.equal(calls, 0);
+    const u = await f.user("live@example.com");
     assert.equal(
-      (await f.call(path, "POST", { ...payload, consent: true }, a)).response
-        .status,
-      502,
+      (await f.call("/api/interviews", "POST", start(), u)).response.status,
+      422,
     );
+    assert.equal(calls, 0);
+    const v = (
+      await f.call("/api/interviews", "POST", start(randomUUID(), true), u)
+    ).data;
+    assert.equal(v.mode, "live");
     assert.equal(calls, 1);
     assert.equal(
-      (await f.call("/api/threads/" + t.id, "GET", undefined, a)).data.messages
-        .length,
+      (
+        await f.call(
+          "/api/interviews/" + v.id + "/answers",
+          "POST",
+          submission(v),
+          u,
+        )
+      ).response.status,
+      422,
+    );
+    assert.equal(
+      (await f.call("/api/interviews", "POST", start(randomUUID(), true), u))
+        .response.status,
+      429,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    await f.close();
+  }
+});
+test("provider refusal, timeout and malformed question plan have clear errors", async () => {
+  for (const [expected, generate] of [
+    [
+      502,
+      async () => {
+        throw Error("failure");
+      },
+    ],
+    [504, async () => new Promise<never>(() => {})],
+    [502, async () => ({ output: { questions: [] }, tokens: 0 })],
+  ] as const) {
+    const f = await fixture({
+      mode: "live",
+      timeout: 40,
+      interviewGenerate: generate,
+    });
+    try {
+      const u = await f.user("failure@example.com");
+      assert.equal(
+        (await f.call("/api/interviews", "POST", start(randomUUID(), true), u))
+          .response.status,
+        expected,
+      );
+      assert.equal(
+        (await f.call("/api/interviews", "GET", undefined, u)).data.items
+          .length,
+        0,
+      );
+    } finally {
+      await f.close();
+    }
+  }
+});
+test("invented feedback evidence is rejected and does not advance saved answer", async () => {
+  const f = await fixture({
+    mode: "live",
+    interviewGenerate: async (input) => ({
+      output:
+        input.task === "plan"
+          ? demoPlan(input.profile)
+          : {
+              ...demoReview(input.answer!, false),
+              evidence: [
+                {
+                  quote: "fabricated qualification",
+                  observation: "An unsupported claim.",
+                },
+              ],
+            },
+      tokens: 30,
+    }),
+  });
+  try {
+    const u = await f.user("evidence@example.com");
+    const v = (
+      await f.call("/api/interviews", "POST", start(randomUUID(), true), u)
+    ).data;
+    assert.equal(
+      (
+        await f.call(
+          "/api/interviews/" + v.id + "/answers",
+          "POST",
+          submission(v, randomUUID(), true),
+          u,
+        )
+      ).response.status,
+      502,
+    );
+    assert.equal(
+      (await f.call("/api/interviews/" + v.id, "GET", undefined, u)).data
+        .version,
       0,
     );
   } finally {
     await f.close();
   }
 });
-test("provider timeout cancels request and successful structured output persists", async () => {
-  const f = await fixture({
-    mode: "live",
-    timeout: 30,
-    generate: async (_q, chunks, signal) =>
-      new Promise((resolve, reject) => {
-        signal.addEventListener("abort", () => reject(new Error("aborted")), {
-          once: true,
-        });
-        if (_q.includes("successful"))
-          resolve({
-            output: {
-              answer: "November 12.",
-              insufficient: false,
-              citations: [
-                { chunkId: chunks[0].chunkId, quote: chunks[0].quote },
-              ],
-            },
-            tokens: 45,
-          });
-      }),
+test("duplicate in-flight writes are rejected, and locks clear after failure", async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((r) => {
+    release = r;
   });
-  try {
-    const a = await f.user("timeout@example.com");
-    await f.call(
-      "/api/sources",
-      "POST",
-      {
-        title: "Launch",
-        content: "The pilot launch is scheduled for November 12.",
-      },
-      a,
-    );
-    const t = (await f.call("/api/threads", "POST", { title: "Launch" }, a))
-      .data;
-    const path = "/api/threads/" + t.id + "/questions";
-    assert.equal(
-      (
-        await f.call(
-          path,
-          "POST",
-          {
-            question: "When is pilot launch?",
-            requestId: randomUUID(),
-            consent: true,
-          },
-          a,
-        )
-      ).response.status,
-      504,
-    );
-    const result = await f.call(
-      path,
-      "POST",
-      {
-        question: "successful pilot launch",
-        requestId: randomUUID(),
-        consent: true,
-      },
-      a,
-    );
-    assert.equal(result.response.status, 200);
-    assert.equal(result.data.tokens, 45);
-    assert.equal(result.data.mode, "live");
-  } finally {
-    await f.close();
-  }
-});
-test("citation validation rejects invented sources, fabricated quotes and uncited certainty", () => {
-  const chunks = [
-    {
-      sourceId: "s",
-      chunkId: "s:0",
-      title: "Plan",
-      quote: "Launch is November 12.",
-      score: 1,
-    },
-  ];
-  assert.throws(() =>
-    validateAnswer(
-      { answer: "Yes", insufficient: false, citations: [] },
-      chunks,
-    ),
-  );
-  assert.throws(() =>
-    validateAnswer(
-      {
-        answer: "Yes",
-        insufficient: false,
-        citations: [{ chunkId: "s:9", quote: "Launch" }],
-      },
-      chunks,
-    ),
-  );
-  assert.throws(() =>
-    validateAnswer(
-      {
-        answer: "Yes",
-        insufficient: false,
-        citations: [{ chunkId: "s:0", quote: "December" }],
-      },
-      chunks,
-    ),
-  );
-  assert.throws(() =>
-    validateAnswer({ answer: 1, citations: [], insufficient: true }, chunks),
-  );
-});
-test("retrieval excludes unrelated sources and unsupported questions abstain", async () => {
-  const sources = sampleSources.map((s, i) => ({
-    ...s,
-    id: "s" + i,
-    ownerId: "u",
-    createdAt: "",
-  }));
-  assert.ok(
-    retrieve("When is the pilot launch?", sources).some((c) =>
-      c.quote.includes("November 12"),
-    ),
-  );
-  assert.equal(
-    retrieve("quantum gravitational singularities", sources).length,
-    0,
-  );
-  let called = false;
-  const result = await answerQuestion(
-    "Unknown",
-    [],
-    "live",
-    async () => {
-      called = true;
-      throw new Error();
-    },
-    new AbortController().signal,
-  );
-  assert.equal(result.insufficient, true);
-  assert.equal(called, false);
-});
-test("JSON demo store survives restart and quota reservations stay atomic", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "briefcase-test-"));
-  try {
-    const file = join(dir, "demo.json");
-    const a = await new JsonStore(file).init();
-    await a.insert("sources", {
-      id: "s",
-      ownerId: "a",
-      title: "Plan",
-      content: "Launch November 12",
-      createdAt: "",
-    });
-    const quotas = await Promise.all(
-      Array.from({ length: 10 }, () => a.reserve("a", "2026-10-04", 3)),
-    );
-    assert.equal(quotas.filter((v) => v > 0).length, 3);
-    await a.close();
-    const b = await new JsonStore(file).init();
-    assert.equal((await b.get("sources", "s"))?.title, "Plan");
-    assert.equal(await b.reserve("a", "2026-10-04", 3), -1);
-    await b.close();
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("global provider budget caps paid requests across accounts", async () => {
-  let calls = 0;
   const f = await fixture({
     mode: "live",
-    globalDailyLimit: 1,
-    generate: async (_q, chunks) => {
-      calls++;
+    timeout: 1000,
+    interviewGenerate: async (input) => {
+      if (input.task === "review") await wait;
       return {
-        output: {
-          answer: "The launch is November 12.",
-          citations: [{ chunkId: chunks[0].chunkId, quote: chunks[0].quote }],
-          insufficient: false,
-        },
-        tokens: 30,
+        output:
+          input.task === "plan"
+            ? demoPlan(input.profile)
+            : demoReview(input.answer!, false),
+        tokens: 10,
       };
     },
   });
   try {
-    for (const [index, email] of [
-      "first@example.com",
-      "second@example.com",
-    ].entries()) {
-      const u = await f.user(email);
-      await f.call(
-        "/api/sources",
-        "POST",
-        {
-          title: "Launch",
-          content: "The launch is scheduled for November 12.",
-        },
-        u,
-      );
-      const t = await f.call(
-        "/api/threads",
-        "POST",
-        { title: "Launch question" },
-        u,
-      );
-      const answer = await f.call(
-        "/api/threads/" + t.data.id + "/questions",
-        "POST",
-        {
-          question: "When is the launch?",
-          requestId: randomUUID(),
-          consent: true,
-        },
-        u,
-      );
-      assert.equal(answer.response.status, index === 0 ? 200 : 429);
-    }
-    assert.equal(calls, 1);
+    const u = await f.user("concurrent@example.com");
+    const v = (
+      await f.call("/api/interviews", "POST", start(randomUUID(), true), u)
+    ).data;
+    const pending = f.call(
+      "/api/interviews/" + v.id + "/answers",
+      "POST",
+      submission(v, randomUUID(), true),
+      u,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(
+      (
+        await f.call(
+          "/api/interviews/" + v.id + "/answers",
+          "POST",
+          submission(v, randomUUID(), true),
+          u,
+        )
+      ).response.status,
+      409,
+    );
+    assert.equal(
+      (await f.call("/api/interviews/" + v.id, "DELETE", undefined, u)).response
+        .status,
+      409,
+    );
+    release();
+    assert.equal((await pending).response.status, 200);
   } finally {
+    release();
     await f.close();
   }
 });
-
-test("same-origin release serves SPA without disguising API or malformed JSON errors", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "briefcase-web-"));
-  await writeFile(join(dir, "index.html"), "<h1>Release fixture</h1>");
-  const f = await fixture({ webRoot: dir });
+test("validation rejects invented profile quotes and unsupported praise", () => {
+  const p = demoPlan(profile);
+  assert.throws(() =>
+    validatePlan(
+      {
+        ...p,
+        questions: p.questions.map((q, i) =>
+          i ? q : { ...q, contextQuote: "not in this resume" },
+        ),
+      },
+      profile,
+    ),
+  );
+  assert.throws(() =>
+    validateReview({ ...demoReview(answer, false), evidence: [] }, answer),
+  );
+  assert.equal(
+    validateReview(demoReview("I do not know.", false), "I do not know.")
+      .strengths.length,
+    0,
+  );
+});
+test("JSON interview persistence survives restart and preserves legacy collections", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "interview-test-"));
+  const file = join(dir, "data.json");
+  let s = await new JsonStore(file).init();
   try {
-    const page = await fetch(f.base + "/workspace");
-    assert.equal(page.status, 200);
-    assert.match(await page.text(), /Release fixture/);
-    const api = await f.call("/api/not-a-route");
-    assert.equal(api.response.status, 404);
-    assert.equal(api.data.error, "Endpoint not found.");
-    const malformed = await fetch(f.base + "/api/auth/register", {
-      method: "POST",
-      headers: { Origin: origin, "Content-Type": "application/json" },
-      body: "{broken",
+    await s.insert("sources", {
+      id: "legacy",
+      ownerId: "a",
+      title: "Old source",
+      content: "Recoverable original data.",
+      createdAt: "2026-01-01",
     });
-    assert.equal(malformed.status, 400);
+    const v: Interview = {
+      id: randomUUID(),
+      ownerId: "a",
+      profile,
+      questions: demoPlan(profile).questions,
+      cursor: 0,
+      pendingFollowUp: null,
+      followUpUsed: false,
+      turns: [],
+      status: "active",
+      version: 0,
+      createRequestId: randomUUID(),
+      mode: "demo",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await s.insert("interviews", v);
+    await s.close();
+    s = await new JsonStore(file).init();
+    assert.equal((await s.get("interviews", v.id))?.profile.role, profile.role);
+    assert.ok(await s.get("sources", "legacy"));
+  } finally {
+    await s.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("authenticated Markdown export downloads real saved content, hides foreign sessions and escapes HTML", async () => {
+  const f = await fixture();
+  try {
+    const u = await f.user("export@example.com"),
+      other = await f.user("export-other@example.com");
+    const v = (await f.call("/api/interviews", "POST", start(), u)).data;
+    await f.call(
+      "/api/interviews/" + v.id + "/answers",
+      "POST",
+      {
+        ...submission(v),
+        answer:
+          "<script>alert(1)</script> I tested the API because access checks matter.",
+      },
+      u,
+    );
+    const r = await fetch(f.base + "/api/interviews/" + v.id + "/export", {
+      headers: { Cookie: u.cookie },
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-disposition")!, /attachment/);
+    assert.match(r.headers.get("content-type")!, /text\/markdown/);
+    const text = await r.text();
+    assert.match(text, /Local demo/);
+    assert.match(text, /tested the API/);
+    assert.doesNotMatch(text, /<script>/);
     assert.equal(
-      malformed.headers.get("content-type")?.includes("application/json"),
-      true,
+      (
+        await fetch(f.base + "/api/interviews/" + v.id + "/export", {
+          headers: { Cookie: other.cookie },
+        })
+      ).status,
+      404,
     );
   } finally {
     await f.close();
-    await rm(dir, { recursive: true, force: true });
   }
 });

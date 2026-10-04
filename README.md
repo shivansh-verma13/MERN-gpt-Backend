@@ -1,91 +1,104 @@
-# Briefcase API
+# Interview Lab
 
-The coordinated API for [Briefcase / MERN-gpt](https://github.com/shivansh-verma13/MERN-gpt/tree/upgrade/briefcase-v2), a private source-backed research workspace. Express, MongoDB, and strict TypeScript. Deploy both repositories at matching V2 revisions; legacy routes are incompatible.
+A text interview practice product built by Shivansh Verma. Bring résumé/experience text and a job description, practice three role-specific questions with at most one follow-up, then review your answers and actionable feedback. This evolves the original MERN GPT project into a complete, bounded product.
 
-## Quick start: synthetic demo
+**Status:** local end-to-end demo verified. Real Gemini integration implemented but unverified without a key. No hosted release URL is claimed.
 
-Node 22.12+:
+The actual UI screenshots are in the paired frontend repository.
+
+## Product journey
+
+1. Open the explicitly labeled synthetic demo, or sign up in a Mongo-backed account deployment.
+2. Choose target role, experience level, and frontend/backend/full-stack focus.
+3. Paste résumé and job context; optionally import résumé `.txt` / `.md` (64KB and 10,000 character limits). PDF parsing is outside this text-first release.
+4. Answer three primary questions, with up to one clarifying follow-up. There is no countdown or hiring score.
+5. See feedback with exact excerpts from your answer, resume saved sessions, and download the completed review as Markdown.
+6. Use history to revisit or delete a session after confirmation.
+
+Demo questions are templates; feedback is a deterministic local text rubric. It checks answer detail, verification wording, and trade-off wording, **not technical correctness**. Demo requests use the real API and persistent local storage; no AI calls are made. Use synthetic context in public demos.
+
+## Architecture
+
+- React 18 + TypeScript + Vite, plain CSS design tokens, Lucide icons.
+- Express + TypeScript, MongoDB for real accounts; local JSON only for explicit synthetic demos.
+- Opaque hashed session cookies, scrypt passwords, exact-origin write checks and CSRF tokens.
+- `@google/genai` for Gemini structured outputs; optional OpenAI Responses adapter retained.
+- Three-question state machine, one-follow-up cap, request UUID replay protection and conditional version writes.
+- Owner-scoped bounded history, per-user and global daily request budgets, timeout/cancellation, no automatic provider retries, 1,400 output-token cap.
+
+Paired repositories: [frontend](https://github.com/shivansh-verma13/MERN-gpt/tree/upgrade/interview-lab) and [API](https://github.com/shivansh-verma13/MERN-gpt-Backend/tree/upgrade/interview-lab). Both use `upgrade/interview-lab`; deploy compatible revisions together. Legacy application source stays under `legacy/` where already preserved. The prior research product remains recoverable on `upgrade/briefcase-v2` and its documentation is archived in `docs/archive-briefcase/`.
+
+## Local setup
+
+Node.js 22.12+ and npm. Clone both repositories and check out `upgrade/interview-lab`.
 
 ```sh
-npm ci
+# API repository
+npm install
 cp .env.example .env
+npm run dev
+# Frontend repository, separate terminal
+npm install
 npm run dev
 ```
 
-Default port 5002, origin `http://localhost:5174`, JSON store `.data/demo.json`, registration disabled, no AI provider calls. Start the paired frontend and choose **Explore demo workspace**. JSON persists local synthetic data but is unsuitable for real-user production or multiple processes. `.env` and `.data` are ignored.
+Visit `http://localhost:5174`. The frontend proxies `/api` to port 5002. Use `localhost` consistently and keep `APP_ORIGIN=http://localhost:5174`; changing origins requires changing the server allowlist. For the frontend preview on port 4174, adjust APP_ORIGIN or use the same-origin release below.
 
-## Persistent accounts and live AI
+## Environment and AI
 
-Use a **new dedicated database**, never the legacy database:
+The frontend has **no provider credentials**. Set server variables in the API `.env` (never commit it):
 
-```dotenv
-STORE=mongo
-MONGODB_URL=mongodb://127.0.0.1:27017
-MONGODB_DB=briefcase_v2
-DEMO_MODE=false
-AI_PROVIDER=openai
-OPENAI_API_KEY=server-only-secret
-OPENAI_MODEL=gpt-4.1-mini
-AI_DAILY_LIMIT=20
-AI_GLOBAL_DAILY_LIMIT=100
-AI_TIMEOUT_MS=25000
-APP_ORIGIN=https://your-new-preview.example
-NODE_ENV=production
-WEB_DIST=./web
-```
+| Variable                         | Purpose / default                                                 |
+| -------------------------------- | ----------------------------------------------------------------- |
+| `PORT`, `APP_ORIGIN`             | 5002 and exact browser origin                                     |
+| `STORE`, `DEMO_MODE`             | `json-demo`, `true` for synthetic local mode                      |
+| `DEMO_FILE`                      | `.data/interview-demo.json`; persistent local demo file           |
+| `MONGODB_URL`, `MONGODB_DB`      | Required for real accounts; dedicated `interview_lab_v1` database |
+| `AI_PROVIDER`                    | `demo`, `gemini`, or `openai`                                     |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Server key and `gemini-2.5-flash-lite` default                    |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Optional adapter, `gpt-4o-mini` default                           |
+| `AI_DAILY_LIMIT`                 | 10 requests per user/day, including question preparation          |
+| `AI_GLOBAL_DAILY_LIMIT`          | 30 live attempts/day across users                                 |
+| `AI_TIMEOUT_MS`                  | 25,000ms; startup bounds maximum to 30,000ms                      |
+| `WEB_DIST`                       | Optional built frontend directory, e.g. `./web`                   |
+| `NODE_ENV`                       | `production` requires HTTPS for Secure session cookies            |
 
-`AI_PROVIDER=demo` allows persistent accounts without paid generation, clearly labeled in the UI. Public synthetic demo plus OpenAI is rejected at startup. A missing live key fails startup instead of silently fabricating results. Configure a model supporting Responses structured outputs; see the [official guide](https://developers.openai.com/api/docs/guides/structured-outputs) and [Node SDK](https://github.com/openai/openai-node).
+For Gemini: create a key in [Google AI Studio](https://aistudio.google.com/apikey), put it only in the API environment, set `STORE=mongo`, `DEMO_MODE=false`, `AI_PROVIDER=gemini` and configure a dedicated Mongo database. Public synthetic demo mode deliberately refuses live AI configuration. Free-tier availability and terms depend on the account and model; verify them before enabling billing. Gemini free-tier content may be used to improve Google products. The UI requires explicit consent before sending résumé, job context and answers. Remove personal or employer-sensitive information.
 
-## AI implementation
+Structured results are validated with Zod. Question context quotes and feedback quotes must be exact substrings of supplied context/answers. Strengths require evidence. This reduces fabricated citations; it **does not prove** reasoning, technical correctness or semantic support. Prompt instructions constrain untrusted content, and there are no tools/external actions. Cancellation stops local work; a provider may still process or bill an already accepted request. Failed live attempts consume budget conservatively. Logs contain request IDs, status, latency and token counts, not raw contexts or answers.
 
-`retrieval.ts` ranks bounded overlapping text chunks from at most 50 owner-scoped sources, selecting five excerpts of at most 800 characters. No vector service is justified for this release. Questions are standalone, not conversation rewriting.
-
-`ai.ts` uses `responses.parse`, Zod, `store:false`, a configurable model, 1,000 output tokens, and zero automatic retries. Instructions treat source text as untrusted evidence; no tools exist. Quote text and source IDs must match retrieved context before saving an answer. No evidence abstains without a provider call. Refusal, malformed output, citation failure, cancellation, and timeout never save a partial turn.
-
-Consent precedes sending the question and relevant excerpts. Account quota defaults to 20 attempts/day; global paid-call quota defaults to 100/day (configuration capped at 500). UTC quotas persist atomically in MongoDB and remain charged on failure to prevent retry abuse. Cancellation aborts the request but already-generated tokens can still cost money. Set a provider-side spending cap: token/request bounds cannot guarantee a precise dollar ceiling.
-
-Quote validation proves provenance, not entailment or complete injection resistance. Lexical retrieval misses some paraphrases. Answers are fully validated before display, so unchecked streaming is intentionally omitted. Actual live model quality remains unverified without credentials.
-
-## Security and API
-
-- Salted scrypt passwords; opaque random sessions hashed in storage; HttpOnly/SameSite=Lax cookies, Secure in production, 24-hour expiry and MongoDB TTL.
-- Exact-origin write checks, session CSRF header, Helmet, 100KB request bodies, bounded Zod validation.
-- Owner authorization on every source/thread resource; foreign IDs return 404. No private source content is rendered as HTML.
-- 10 auth requests/min/IP and 100 API requests/min/IP. These and in-flight locks are process-local: use one API replica. Review trusted-proxy configuration before relying on client-IP quotas; never blindly trust forwarded headers.
-- Completed UUID question requests reuse answers. Conditional updatedAt writes prevent lost updates. Cross-replica duplicate provider requests are not guaranteed exactly once.
-- Logs contain request IDs, method/status/duration, answer latency/token/citation totals; no intentional question, email, source, cookie, or key logging.
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /health`, `/api/config` | Storage readiness, public mode and limit |
-| `POST /api/auth/register`, `/login`, `/demo` | Account or isolated demo session |
-| `GET /api/auth/me`, `POST /api/auth/logout` | Resume/revoke session |
-| `GET`, `POST /api/sources`; `DELETE /api/sources/:id` | Owner-scoped source operations |
-| `GET`, `POST /api/threads`; `GET`, `DELETE /api/threads/:id` | Owner-scoped conversation operations |
-| `POST /api/threads/:id/questions` | `{question, requestId: UUID, consent: boolean}` |
-
-Signed-in writes require `X-CSRF-Token` from the session response and configured `Origin`. Responses are resources or `{items,hasMore}`; errors are `{error,fields?}`. Lists support `limit` (max 50) and `offset`. Product bounds: 50 sources × 16,000 characters, 100 conversations, 40 messages/thread. These are workload assumptions, not load-tested scale claims.
-
-## Database and migration
-
-`npm run migrate` creates idempotent version 1 indexes; startup also migrates. Collections: users, sessions, sources, threads, usage, migrations. Unique IDs/emails, owner/time indexes, session TTL, unique owner/day quotas follow actual queries. Connection pool 10, selection timeout five seconds; shutdown drains the server and closes storage.
-
-**Deploy frontend and backend together.** V2 does not convert or delete legacy users/data. Back up the old database and keep it separate from `briefcase_v2`. Roll back both code revisions with their original manifests/database; retain V2 data for recovery. Index removal must be a reviewed operator action, never automatic destructive rollback.
-
-## Checks and hosting
+## Verification
 
 ```sh
+# Both repos
 npm run lint
 npm run typecheck
 npm test
-npm run evaluate
 npm run build
-npm audit --audit-level=moderate
+# API only
+npm run evaluate
+```
+
+See [verification](docs/VERIFICATION.md) for results and limitations. Policy/rubric evaluation is deterministic, not a live model quality benchmark. Tests use synthetic data and injected provider responses for failure paths.
+
+## Same-origin build and deployment
+
+```sh
+# API repo after pushing the matching frontend revision
+npm run prepare:web
+npm run build
+# Set APP_ORIGIN to your HTTPS host, WEB_DIST=./web, then
 npm start
 ```
 
-Tests cover auth/ownership/CSRF, primary flows, limits, request reuse, consent, mocked provider success/failure/timeout, citation validation, global budget, and persistence. One test starts **real temporary MongoDB** for migrations, owner queries, conditional writes, atomic concurrent quotas, and reconnect persistence; first run downloads an official binary. Other API tests use JSON or provider mocks. Eight deterministic evaluation cases are not a live AI quality score.
+`WEB_REF` can pin an immutable frontend commit; the Docker build exposes the same argument. The helper refuses to overwrite its staging checkout. Review the checked-out revision before release. Use a low-cost Node host with a persistent Mongo database and HTTPS; static frontend hosting alone cannot serve this backend. One API replica is the documented workload assumption: in-flight locks and IP limits are process-local. Multi-replica coordination, password reset/email verification and retention automation are not implemented. No production adoption or load capacity is claimed.
 
-Set `WEB_DIST` to built frontend assets for same-origin serving. `npm run prepare:web` optionally clones/builds the public frontend upgrade branch using `WEB_REF` (branch/tag) into `.release-web` and copies assets to `web`; it refuses an existing staging checkout. Direct local built assets are the verified route. Docker scaffold is supplied but unverified without a daemon.
+Migration v2 adds interview owner/time and create-request uniqueness indexes without deleting historical research collections. Prefer a new dedicated database. Back up any existing database and consult [deployment/recovery](docs/DEPLOYMENT.md) before a live migration. No existing production domain or database was changed during this upgrade.
 
-Read [deployment](docs/DEPLOYMENT.md), [verification](docs/VERIFICATION.md), [case study](docs/CASE_STUDY.md), [priority backlog](docs/PROJECT_PRIORITY.md), and [upgrade log](UPGRADE_LOG.md). No hosted release is claimed. Missing: new HTTPS API host, persistent MongoDB, secret configuration, and optional provider key/spending cap. Existing portfolio hosting is unchanged.
+## Structure
+
+Frontend: `src/components/PracticeSetup.tsx`, `PracticeSession.tsx`, `PracticeReview.tsx`, `Auth.tsx`; `App.tsx` owns navigation/session loading, `api.ts` transport, `types.ts` contracts and `styles.css` the design system.
+
+API: `src/interview.ts` schemas/state/rubric, `interview-routes.ts` ownership and flow, `interview-provider.ts` server adapters, `app.ts` auth/middleware, `store.ts` JSON/Mongo storage, `index.ts` startup, `tests/` integration tests and `scripts/evaluate.ts` validation cases.
+
+[Case study](docs/CASE_STUDY.md) · [Upgrade log](UPGRADE_LOG.md) · [Original project prioritization](docs/PROJECT_PRIORITY.md)

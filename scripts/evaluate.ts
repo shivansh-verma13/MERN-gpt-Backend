@@ -1,57 +1,106 @@
 import assert from "node:assert/strict";
-import { retrieve } from "../src/retrieval.js";
-import { sampleSources } from "../src/demo.js";
-import { validateAnswer, answerQuestion } from "../src/ai.js";
-const sources = sampleSources.map((s, i) => ({
-  ...s,
-  id: "s" + i,
-  ownerId: "evaluation",
-  createdAt: "",
-}));
-const cases = [
-  { question: "When is the pilot launch?", expected: "November 12" },
-  {
-    question: "What is included in the first release?",
-    expected: "private workspaces",
-  },
-  {
-    question: "Why reject a vector database?",
-    expected: "operational simplicity",
-  },
-  { question: "What is the daily AI limit?", expected: "twenty questions" },
-  { question: "How are sessions secured?", expected: "HttpOnly" },
-  { question: "What is the pricing model?", expected: "did not establish" },
-  { question: "quantum gravitational singularities", expected: null },
+import {
+  demoPlan,
+  demoReview,
+  validatePlan,
+  validateReview,
+  ProfileInput,
+} from "../src/interview.js";
+const profile = ProfileInput.parse({
+  role: "Backend Engineer",
+  level: "early-career",
+  focus: "backend",
+  resume:
+    "Synthetic engineer built an API with authentication and integration tests.",
+  job: "Build reliable Node services, validate inputs, and enforce authorization.",
+});
+const good =
+  "I owned the API endpoint and implemented validation because malformed requests must fail early. I tested authorization, measured query latency and compared an indexed query with caching before choosing the simpler database change. No business impact is claimed.";
+const plan = demoPlan(profile);
+const cases: [string, () => void][] = [
+  [
+    "valid role plan",
+    () => assert.equal(validatePlan(plan, profile).questions.length, 3),
+  ],
+  [
+    "duplicate questions",
+    () =>
+      assert.throws(() =>
+        validatePlan(
+          {
+            questions: [
+              plan.questions[0],
+              plan.questions[0],
+              plan.questions[2],
+            ],
+          },
+          profile,
+        ),
+      ),
+  ],
+  [
+    "invented context",
+    () =>
+      assert.throws(() =>
+        validatePlan(
+          {
+            questions: plan.questions.map((q) => ({
+              ...q,
+              contextQuote: "I shipped to a million users",
+            })),
+          },
+          profile,
+        ),
+      ),
+  ],
+  [
+    "exact answer evidence",
+    () =>
+      assert.ok(validateReview(demoReview(good, true), good).evidence.length),
+  ],
+  [
+    "invented answer evidence",
+    () =>
+      assert.throws(() =>
+        validateReview(
+          {
+            ...demoReview(good, false),
+            evidence: [
+              { quote: "fabricated result", observation: "Unsupported claim" },
+            ],
+          },
+          good,
+        ),
+      ),
+  ],
+  [
+    "unsupported praise",
+    () =>
+      assert.throws(() =>
+        validateReview({ ...demoReview(good, false), evidence: [] }, good),
+      ),
+  ],
+  [
+    "weak answer no fabricated strength",
+    () => assert.equal(demoReview("I do not know.", false).strengths.length, 0),
+  ],
+  [
+    "follow-up permission",
+    () => assert.equal(demoReview(good, false).followUp, null),
+  ],
+  [
+    "focus-sensitive templates",
+    () =>
+      assert.notEqual(
+        plan.questions[1].text,
+        demoPlan({ ...profile, focus: "frontend" }).questions[1].text,
+      ),
+  ],
 ];
-for (const c of cases) {
-  const chunks = retrieve(c.question, sources);
-  if (c.expected)
-    assert.ok(
-      chunks.some((v) => v.quote.includes(c.expected!)),
-      c.question,
-    );
-  else assert.equal(chunks.length, 0);
-  const result = await answerQuestion(
-    c.question,
-    chunks,
-    "demo",
-    undefined,
-    new AbortController().signal,
-  );
-  assert.equal(result.insufficient, !c.expected);
-  console.log("PASS " + c.question);
+for (const [name, run] of cases) {
+  run();
+  console.log("PASS " + name);
 }
-assert.throws(() =>
-  validateAnswer(
-    {
-      answer: "Invented",
-      insufficient: false,
-      citations: [{ chunkId: "external:0", quote: "made up" }],
-    },
-    retrieve("launch", sources),
-  ),
-);
-console.log("PASS fabricated citation rejected");
 console.log(
-  "8/8 deterministic retrieval/validation cases passed. Live model quality is NOT evaluated without credentials.",
+  `${cases.length} deterministic policy/rubric cases passed. These do not measure live model quality.`,
 );

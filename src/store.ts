@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import type { Store, Table, Tables } from "./types.js";
 export class JsonStore implements Store {
   private rows: Record<Table, Record<string, unknown>> = {
+    interviews: {},
     users: {},
     sources: {},
     threads: {},
@@ -16,7 +17,10 @@ export class JsonStore implements Store {
   async init() {
     if (this.file) {
       try {
-        this.rows = JSON.parse(await readFile(this.file, "utf8"));
+        this.rows = {
+          ...this.rows,
+          ...JSON.parse(await readFile(this.file, "utf8")),
+        };
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
@@ -205,7 +209,14 @@ export class MongoStore implements Store {
   }
   async migrate() {
     const db = this.client.db(this.dbName);
-    for (const t of ["users", "sessions", "sources", "threads", "usage"])
+    for (const t of [
+      "users",
+      "sessions",
+      "sources",
+      "threads",
+      "usage",
+      "interviews",
+    ])
       await db.collection(t).createIndex({ id: 1 }, { unique: true });
     await db.collection("users").createIndex({ email: 1 }, { unique: true });
     await db
@@ -220,6 +231,19 @@ export class MongoStore implements Store {
     await db
       .collection("usage")
       .createIndex({ ownerId: 1, day: 1 }, { unique: true });
+    await db
+      .collection("interviews")
+      .createIndex({ ownerId: 1, createdAt: -1, id: 1 });
+    await db
+      .collection("interviews")
+      .createIndex({ ownerId: 1, createRequestId: 1 }, { unique: true });
+    await db
+      .collection("migrations")
+      .updateOne(
+        { version: 2 },
+        { $setOnInsert: { version: 2, appliedAt: new Date() } },
+        { upsert: true },
+      );
     await db
       .collection("migrations")
       .updateOne(

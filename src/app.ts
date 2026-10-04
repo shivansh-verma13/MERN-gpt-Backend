@@ -6,12 +6,10 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { Store, User, Session, Thread } from "./types.js";
+import type { Store, User, Session } from "./types.js";
 import { hashPassword, checkPassword, secret, digest } from "./auth.js";
-import { sampleSources } from "./demo.js";
-import { retrieve } from "./retrieval.js";
-import { answerQuestion } from "./ai.js";
-import type { Generate } from "./ai.js";
+import { registerInterviews } from "./interview-routes.js";
+import type { InterviewGenerate } from "./interview.js";
 export type Config = {
   origin: string;
   production: boolean;
@@ -20,10 +18,11 @@ export type Config = {
   dailyLimit: number;
   globalDailyLimit?: number;
   timeout: number;
-  generate?: Generate;
+  interviewGenerate?: InterviewGenerate;
+  provider?: string;
   webRoot?: string;
 };
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
@@ -38,15 +37,6 @@ const credentials = z.object({
     .transform((v) => v.toLowerCase()),
   password: z.string().min(10).max(128),
 });
-const sourceInput = z.object({
-  title: z.string().trim().min(1).max(100),
-  content: z.string().trim().min(20).max(16000),
-});
-const questionInput = z.object({
-  question: z.string().trim().min(3).max(1200),
-  requestId: z.uuid(),
-  consent: z.boolean(),
-});
 const publicUser = (u: User) => ({
   id: u.id,
   name: u.name,
@@ -55,7 +45,6 @@ const publicUser = (u: User) => ({
 });
 export function createApp(store: Store, config: Config) {
   const app = express();
-  const inflight = new Set<string>();
   const buckets = new Map<string, { count: number; until: number }>();
   app.disable("x-powered-by");
   app.use(helmet());
@@ -110,7 +99,7 @@ export function createApp(store: Store, config: Config) {
       fn(req, res).catch(next);
     };
   const auth = wrap(async (req, res) => {
-    const token = req.cookies.briefcase_session;
+    const token = req.cookies.interview_session;
     if (typeof token !== "string") throw new HttpError(401, "Please sign in.");
     const session = await store.get("sessions", digest(token));
     if (!session || new Date(session.expiresAt).getTime() < Date.now())
@@ -139,7 +128,7 @@ export function createApp(store: Store, config: Config) {
       expiresAt: new Date(Date.now() + 86400000),
     };
     await store.insert("sessions", session);
-    res.cookie("briefcase_session", token, {
+    res.cookie("interview_session", token, {
       httpOnly: true,
       secure: config.production,
       sameSite: "lax",
@@ -164,6 +153,7 @@ export function createApp(store: Store, config: Config) {
       demoEnabled: config.demo,
       mode: config.mode,
       dailyLimit: config.dailyLimit,
+      provider: config.provider ?? "Demo",
     }),
   );
   app.post(
@@ -226,13 +216,6 @@ export function createApp(store: Store, config: Config) {
         createdAt: new Date().toISOString(),
       };
       await store.insert("users", user);
-      for (const s of sampleSources)
-        await store.insert("sources", {
-          ...s,
-          id: randomUUID(),
-          ownerId: user.id,
-          createdAt: new Date().toISOString(),
-        });
       res.status(201).json(await sessionFor(res, user));
     }),
   );
@@ -253,7 +236,7 @@ export function createApp(store: Store, config: Config) {
       await store.remove("sessions", res.locals.session.id, {
         ownerId: res.locals.user.id,
       });
-      res.clearCookie("briefcase_session", {
+      res.clearCookie("interview_session", {
         httpOnly: true,
         secure: config.production,
         sameSite: "lax",
@@ -262,271 +245,7 @@ export function createApp(store: Store, config: Config) {
       res.json({ ok: true });
     }),
   );
-  const page = (req: Request) => ({
-    limit: Math.min(50, Math.max(1, Math.trunc(Number(req.query.limit)) || 20)),
-    offset: Math.min(
-      500,
-      Math.max(0, Math.trunc(Number(req.query.offset)) || 0),
-    ),
-  });
-  app.get(
-    "/api/sources",
-    protect,
-    wrap(async (req, res) => {
-      const { limit, offset } = page(req);
-      const items = await store.find(
-        "sources",
-        { ownerId: res.locals.user.id },
-        limit + 1,
-        offset,
-      );
-      res.json({ items: items.slice(0, limit), hasMore: items.length > limit });
-    }),
-  );
-  app.post(
-    "/api/sources",
-    protect,
-    wrap(async (req, res) => {
-      const ownerId = res.locals.user.id;
-      if (inflight.has("source:" + ownerId))
-        throw new HttpError(409, "Source save in progress.");
-      inflight.add("source:" + ownerId);
-      try {
-        if ((await store.find("sources", { ownerId }, 51)).length >= 50)
-          throw new HttpError(
-            409,
-            "This release supports up to 50 sources per workspace.",
-          );
-        const input = sourceInput.parse(req.body);
-        const item = {
-          ...input,
-          id: randomUUID(),
-          ownerId,
-          createdAt: new Date().toISOString(),
-        };
-        await store.insert("sources", item);
-        res.status(201).json(item);
-      } finally {
-        inflight.delete("source:" + ownerId);
-      }
-    }),
-  );
-  app.delete(
-    "/api/sources/:id",
-    protect,
-    wrap(async (req, res) => {
-      if (
-        !(await store.remove("sources", String(req.params.id), {
-          ownerId: res.locals.user.id,
-        }))
-      )
-        throw new HttpError(404, "Source not found.");
-      res.json({ ok: true });
-    }),
-  );
-  app.get(
-    "/api/threads",
-    protect,
-    wrap(async (req, res) => {
-      const { limit, offset } = page(req);
-      const items = await store.find(
-        "threads",
-        { ownerId: res.locals.user.id },
-        limit + 1,
-        offset,
-      );
-      res.json({
-        items: items.slice(0, limit).map(({ messages, ...t }) => ({
-          ...t,
-          messageCount: messages.length,
-        })),
-        hasMore: items.length > limit,
-      });
-    }),
-  );
-  app.post(
-    "/api/threads",
-    protect,
-    wrap(async (req, res) => {
-      const title = z.string().trim().min(1).max(100).parse(req.body.title);
-      const ownerId = res.locals.user.id;
-      const lock = "thread-create:" + ownerId;
-      if (inflight.has(lock))
-        throw new HttpError(409, "Conversation creation in progress.");
-      inflight.add(lock);
-      try {
-        if ((await store.find("threads", { ownerId }, 101)).length >= 100)
-          throw new HttpError(409, "Conversation limit reached.");
-        const now = new Date().toISOString();
-        const t: Thread = {
-          id: randomUUID(),
-          ownerId,
-          title,
-          messages: [],
-          createdAt: now,
-          updatedAt: now,
-        };
-        await store.insert("threads", t);
-        res.status(201).json(t);
-      } finally {
-        inflight.delete(lock);
-      }
-    }),
-  );
-  app.get(
-    "/api/threads/:id",
-    protect,
-    wrap(async (req, res) => {
-      const t = await store.get("threads", String(req.params.id));
-      if (!t || t.ownerId !== res.locals.user.id)
-        throw new HttpError(404, "Conversation not found.");
-      res.json(t);
-    }),
-  );
-  app.delete(
-    "/api/threads/:id",
-    protect,
-    wrap(async (req, res) => {
-      if (
-        !(await store.remove("threads", String(req.params.id), {
-          ownerId: res.locals.user.id,
-        }))
-      )
-        throw new HttpError(404, "Conversation not found.");
-      res.json({ ok: true });
-    }),
-  );
-  app.post(
-    "/api/threads/:id/questions",
-    protect,
-    wrap(async (req, res) => {
-      const { question, requestId, consent } = questionInput.parse(req.body);
-      const ownerId = res.locals.user.id;
-      const id = String(req.params.id);
-      const thread = await store.get("threads", id);
-      if (!thread || thread.ownerId !== ownerId)
-        throw new HttpError(404, "Conversation not found.");
-      const existing = thread.messages.find(
-        (m) => m.id === requestId + ":answer",
-      );
-      if (existing) return res.json(existing.result);
-      if (thread.messages.length >= 40)
-        throw new HttpError(
-          409,
-          "Start a new conversation to keep context bounded.",
-        );
-      const mode = res.locals.user.demo ? "demo" : config.mode;
-      if (mode === "live" && !consent)
-        throw new HttpError(
-          422,
-          "Please consent before sending your question and excerpts to OpenAI.",
-        );
-      if (inflight.has(id))
-        throw new HttpError(409, "A question is already in progress.");
-      inflight.add(id);
-      const controller = new AbortController();
-      const cancel = () => {
-        if (!res.writableEnded) controller.abort();
-      };
-      res.on("close", cancel);
-      const timeout = setTimeout(() => controller.abort(), config.timeout);
-      try {
-        const count = await store.reserve(
-          ownerId,
-          new Date().toISOString().slice(0, 10),
-          config.dailyLimit,
-        );
-        if (count < 0)
-          throw new HttpError(
-            429,
-            "Daily question limit reached. Try tomorrow.",
-          );
-        const sources = await store.find("sources", { ownerId }, 50);
-        const chunks = retrieve(question, sources);
-        if (mode === "live" && chunks.length) {
-          const reserved = await store.reserve(
-            "__provider_budget",
-            new Date().toISOString().slice(0, 10),
-            config.globalDailyLimit ?? 100,
-          );
-          if (reserved < 0)
-            throw new HttpError(
-              429,
-              "The workspace AI budget is exhausted for today. Try tomorrow.",
-            );
-        }
-
-        let result;
-        try {
-          result = await answerQuestion(
-            question,
-            chunks,
-            mode,
-            config.generate,
-            controller.signal,
-          );
-        } catch {
-          throw new HttpError(
-            controller.signal.aborted ? 504 : 502,
-            controller.signal.aborted
-              ? "Request cancelled or timed out. Your question was not saved."
-              : "The AI provider could not produce a valid, cited answer. Please retry.",
-          );
-        }
-        if (controller.signal.aborted)
-          throw new HttpError(504, "Request cancelled.");
-        const now = new Date().toISOString();
-        const messages = [
-          ...thread.messages,
-          {
-            id: requestId,
-            role: "user" as const,
-            content: question,
-            createdAt: now,
-          },
-          {
-            id: requestId + ":answer",
-            role: "assistant" as const,
-            content: result.answer,
-            createdAt: now,
-            result,
-          },
-        ];
-        if (
-          !(await store.update(
-            "threads",
-            id,
-            { ownerId, updatedAt: thread.updatedAt },
-            {
-              messages,
-              updatedAt: now,
-              title: thread.messages.length
-                ? thread.title
-                : question.slice(0, 70),
-            },
-          ))
-        )
-          throw new HttpError(
-            409,
-            "Conversation changed. Reload before retrying.",
-          );
-        console.log(
-          JSON.stringify({
-            event: "answer",
-            mode,
-            latencyMs: result.latencyMs,
-            tokens: result.tokens,
-            citations: result.citations.length,
-          }),
-        );
-        res.json(result);
-      } finally {
-        clearTimeout(timeout);
-        res.off("close", cancel);
-        inflight.delete(id);
-      }
-    }),
-  );
+  registerInterviews(app, store, config, protect, wrap);
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "Endpoint not found." }),
   );

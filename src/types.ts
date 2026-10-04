@@ -1,3 +1,4 @@
+import type { Interview } from "./interview.js";
 export type Source = {
   id: string;
   ownerId: string;
@@ -50,6 +51,7 @@ export type Session = {
 };
 export type Usage = { id: string; ownerId: string; day: string; count: number };
 export type Tables = {
+  interviews: Interview;
   users: User;
   sources: Source;
   threads: Thread;

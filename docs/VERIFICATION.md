@@ -24,4 +24,6 @@ Axe 4.12 reported zero detected violations on onboarding, desktop workspace, lib
 
 ## Unverified
 
-Actual OpenAI quality/latency/cost, hosted infrastructure, provider retention settings, GitHub CI execution, distributed concurrency, load capacity, and recovery drills. No Lighthouse score or adoption metrics are claimed. Docker scaffold is not built because no local daemon is available.
+Actual OpenAI quality/latency/cost, hosted infrastructure, provider retention settings, distributed concurrency, load capacity, and recovery drills. No Lighthouse score or adoption metrics are claimed. Docker scaffold is not built because no local daemon is available.
+
+GitHub Actions checks also passed on both published upgrade branches. The release helper was verified by cloning the frontend branch, installing its lockfile, building, and copying web assets. Docker remains unverified.

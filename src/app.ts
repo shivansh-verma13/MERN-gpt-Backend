@@ -350,19 +350,27 @@ export function createApp(store: Store, config: Config) {
     wrap(async (req, res) => {
       const title = z.string().trim().min(1).max(100).parse(req.body.title);
       const ownerId = res.locals.user.id;
-      if ((await store.find("threads", { ownerId }, 101)).length >= 100)
-        throw new HttpError(409, "Conversation limit reached.");
-      const now = new Date().toISOString();
-      const t: Thread = {
-        id: randomUUID(),
-        ownerId,
-        title,
-        messages: [],
-        createdAt: now,
-        updatedAt: now,
-      };
-      await store.insert("threads", t);
-      res.status(201).json(t);
+      const lock = "thread-create:" + ownerId;
+      if (inflight.has(lock))
+        throw new HttpError(409, "Conversation creation in progress.");
+      inflight.add(lock);
+      try {
+        if ((await store.find("threads", { ownerId }, 101)).length >= 100)
+          throw new HttpError(409, "Conversation limit reached.");
+        const now = new Date().toISOString();
+        const t: Thread = {
+          id: randomUUID(),
+          ownerId,
+          title,
+          messages: [],
+          createdAt: now,
+          updatedAt: now,
+        };
+        await store.insert("threads", t);
+        res.status(201).json(t);
+      } finally {
+        inflight.delete(lock);
+      }
     }),
   );
   app.get(

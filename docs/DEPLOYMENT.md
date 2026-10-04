@@ -6,7 +6,7 @@ One **new HTTPS Node 22 preview** serves Express `/api` and built Vite assets th
 
 1. Check out both reviewed `upgrade/briefcase-v2` revisions.
 2. Frontend: `npm ci`, `npm run build`.
-3. API: `npm ci`, `npm run build`. Copy frontend `dist` contents to API `web`; alternatively `npm run prepare:web` clones/builds a public frontend branch/tag selected with `WEB_REF`. The direct local asset path is verified; the clone helper is a supplied scaffold.
+3. API: `npm ci`, `npm run build`. Copy frontend `dist` contents to API `web`; alternatively `npm run prepare:web` clones/builds a public frontend branch/tag selected with `WEB_REF`. Both the direct asset path and clone/build helper were verified locally.
 4. Set server variables: `STORE=mongo`, dedicated `MONGODB_URL`/`MONGODB_DB`, exact HTTPS `APP_ORIGIN`, `NODE_ENV=production`, `WEB_DIST=./web`, and host-provided `PORT`.
 5. Public credential-free preview: `DEMO_MODE=true`, `AI_PROVIDER=demo`. Each visitor receives isolated synthetic data and provider spending is disabled. Cap is 200 workspaces; arrange reviewed synthetic cleanup. Private accounts: `DEMO_MODE=false`. Live AI additionally needs server credentials, configured model, account/global ceilings, and provider spending cap.
 6. Run `npm run migrate` against the new database, keep backups, then `npm start`. No legacy database is modified/imported.

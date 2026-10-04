@@ -228,6 +228,24 @@ test("bounded validation, pagination, source caps and expired sessions", async (
       ).response.status,
       422,
     );
+    for (let i = 0; i < 99; i++)
+      await f.store.insert("threads", {
+        id: randomUUID(),
+        ownerId: a.id,
+        title: "Existing",
+        messages: [],
+        createdAt: "2026-10-04",
+        updatedAt: "2026-10-04",
+      });
+    const concurrent = await Promise.all([
+      f.call("/api/threads", "POST", { title: "Final slot" }, a),
+      f.call("/api/threads", "POST", { title: "Overflow" }, a),
+    ]);
+    assert.equal(concurrent.filter((r) => r.response.status === 201).length, 1);
+    assert.equal(
+      (await f.store.find("threads", { ownerId: a.id }, 101)).length,
+      100,
+    );
     for (let i = 0; i < 50; i++)
       await f.store.insert("sources", {
         id: randomUUID(),

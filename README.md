@@ -2,7 +2,7 @@
 
 A text interview practice product built by Shivansh Verma. Bring résumé/experience text and a job description, practice three role-specific questions with at most one follow-up, then review your answers and actionable feedback. This evolves the original MERN GPT project into a complete, bounded product.
 
-**Status:** local end-to-end demo verified. Live Gemini and Atlas-backed account interviews verified locally with synthetic data. No hosted release URL is claimed.
+**Deployment:** [Interview Lab](https://shivansh-interview-lab.netlify.app/) is published on Netlify. **Currently blocked:** the hosted API cannot connect to MongoDB (503); the public interview journey has not passed verification. Live Gemini and Atlas-backed interviews were verified locally with synthetic data. See [deployment status](docs/DEPLOYMENT.md).
 
 The actual UI screenshots are in the paired frontend repository.
 

@@ -19,9 +19,16 @@ export async function handler(event, context) {
     cached ??= initializeRuntime(true).then(({ app }) => createFunction(app));
     const fn = await cached;
     return await fn(event, context);
-  } catch {
+  } catch (error) {
     cached = undefined;
-    console.error(JSON.stringify({ event: "function_initialization_failed" }));
+    // Classify startup failures without logging messages, URIs or credentials.
+    const category = error?.name === "MongoServerSelectionError"
+      ? "database_connection"
+      : error?.name === "MongoServerError"
+        ? "database_operation"
+        : "runtime_configuration";
+    console.error(JSON.stringify({ event: "function_initialization_failed", category,
+      ...(Number.isInteger(error?.code) ? { code: error.code } : {}) }));
     return {
       statusCode: 503,
       headers: {

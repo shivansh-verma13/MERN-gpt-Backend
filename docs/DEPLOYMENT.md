@@ -1,6 +1,6 @@
 # Deployment and recovery
 
-Current status (October 5, 2026): [Interview Lab](https://shivansh-interview-lab.netlify.app/) is published on the owner's existing Free Legacy Netlify plan. Gemini and MongoDB credentials are configured as server secrets with owner approval. The cloud API currently returns 503: its MongoDB connection times out. The hosted user journey is not yet verified; inspect Atlas network access before inviting users. Static hosting and function bundling passed. No paid resources or database network rules were changed. The older Node hosting instructions below remain an alternative.
+Current status (October 5, 2026): [Interview Lab](https://shivansh-interview-lab.netlify.app/) is published on the owner's existing Free Legacy Netlify plan. Gemini and MongoDB credentials are configured as server secrets with owner approval. The cloud API currently returns 503: Atlas allows only three individual IPs, while default Netlify function outbound IPs fluctuate. Static hosting and function bundling passed. The hosted user journey is not yet verified. The owner delegated the hosting choice; we chose to retain network restrictions and prepare a free Render API instead of allowing every IP. Render account login is pending. No paid resources or database network rules were changed.
 
 ## Proposed preview
 

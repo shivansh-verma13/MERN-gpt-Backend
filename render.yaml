@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: shivansh-interview-lab-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: upgrade/interview-lab
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22.23.3"
+      - key: NODE_ENV
+        value: production
+      - key: STORE
+        value: mongo
+      - key: MONGODB_DB
+        value: interview_lab_v1
+      - key: DEMO_MODE
+        value: "false"
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: APP_ORIGIN
+        value: https://shivansh-interview-lab.netlify.app
+      - key: AI_DAILY_LIMIT
+        value: "10"
+      - key: AI_GLOBAL_DAILY_LIMIT
+        value: "30"
+      - key: AI_TIMEOUT_MS
+        value: "20000"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MONGODB_URL
+        sync: false

@@ -27,3 +27,18 @@ Record deployed revisions and DB backup. Roll back both application revisions to
 ## Operational limits
 
 Single API replica; locks/IP limiter are in-memory. Daily quota reservation is atomic in Mongo but is deliberately not refunded on provider errors. Maximum 50 sessions per account. No automated retention policy, email verification, password recovery or admin deletion tooling. Monitor host logs (no contexts), provider usage, readiness and database backups. Provider cancellation cannot guarantee cancellation of an accepted remote request.
+
+
+## Netlify release preparation — October 5, 2026
+
+Added an Express-to-Netlify Functions adapter (`serverless-http`) with same-origin `/api/*` and `/health` rewrites plus static Vite output. Refactored startup into an async runtime factory; local Node server behavior is retained. Serverless runtime requires MongoDB, uses production secure cookies and reuses initialized connections per warm worker. Frontend build is pinned to ecee40d563798147b4120ebf0f1f64ccba99a444. No credentials enter Git, frontend assets or deployment config.
+
+Verification: 16 backend tests pass, including serverless cookie serialization, sign-in identity, CSRF rejection, path normalization and base64 audio parsing. Build/lint pass and an ESM function bundle builds successfully. Dependency audit: 0 vulnerabilities. This verifies the adapter locally; Netlify cloud bundling and the hosted user journey remain pending.
+
+Deployment plan: new `shivansh-interview-lab` project in the existing `shivansh-verma13` Netlify team, sourced from MERN-gpt-Backend `upgrade/interview-lab`; root base directory, build `npm run build && npm run prepare:web`, publish `web`, functions `netlify/functions`. Required runtime secrets: existing GEMINI_API_KEY and MONGODB_URL, plus STORE=mongo, MONGODB_DB=interview_lab_v1, DEMO_MODE=false, AI_PROVIDER=gemini, GEMINI_MODEL=gemini-3.5-flash-lite, NODE_ENV=production, AI_DAILY_LIMIT=10 and AI_GLOBAL_DAILY_LIMIT=30. APP_ORIGIN uses the site's platform URL or an explicit exact HTTPS origin. No WEB_DIST in serverless mode.
+
+The local database/account records will be reused; startup creates existing additive indexes idempotently and deletes nothing. Rollback: restore the prior Netlify deploy/revision while retaining MongoDB data; existing Portfolio and original MERN GPT deployments are untouched. No paid plan or resource upgrade is authorized. Hosting consumes the team's existing build/function allowances; keep spending settings unchanged. Exact account allowances and cloud verification still need checking before publish.
+
+Limitations: Netlify may use multiple workers. In-memory request locks/IP counters are best effort per worker, not distributed protection; MongoDB owner/version writes, unique replay indexes and atomic daily provider budgets remain authoritative. Not a claim of production scale or a public hiring service. Free-form audio input is bounded by bytes and timeouts; recording duration is bounded by the client, not independent server media decoding.
+
+Blocker: explicit permission to transfer the existing Gemini API key and MongoDB connection credential into Netlify server environment variables. The browser's sensitive-data transmission policy requires naming the credentials and destination before transfer. Public URL must not be labeled verified until deploy and synthetic hosted journey pass. Next project remains Notes; no unrelated repository changes.

@@ -1,0 +1,29 @@
+[build]
+ command = "npm run build && npm run prepare:web"
+ publish = "web"
+ functions = "netlify/functions"
+[build.environment]
+ NODE_VERSION = "22"
+ WEB_REF = "ecee40d563798147b4120ebf0f1f64ccba99a444"
+[functions]
+ node_bundler = "esbuild"
+ external_node_modules = ["mongodb", "@google/genai", "openai", "express", "serverless-http"]
+[[redirects]]
+ from = "/api/*"
+ to = "/.netlify/functions/api/:splat"
+ status = 200
+ force = true
+[[redirects]]
+ from = "/health"
+ to = "/.netlify/functions/api/health"
+ status = 200
+ force = true
+[[redirects]]
+ from = "/*"
+ to = "/index.html"
+ status = 200
+[[headers]]
+ for = "/*"
+ [headers.values]
+  X-Content-Type-Options = "nosniff"
+  Referrer-Policy = "strict-origin-when-cross-origin"

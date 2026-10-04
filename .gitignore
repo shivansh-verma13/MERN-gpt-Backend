@@ -10,3 +10,6 @@ web/
 
 .interview-release-web/
 .interview-release-web-*/
+
+.netlify/
+.function-verification/

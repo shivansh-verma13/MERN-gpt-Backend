@@ -21,3 +21,9 @@ Read README, docs/VERIFICATION.md and docs/DEPLOYMENT.md. Continue from the coor
 ## Live Gemini configuration check
 
 The owner supplied a key, saved only in the API ignored `.env`. Two direct synthetic provider requests passed using gemini-3.5-flash-lite: 3-question plan (357 tokens) and feedback with 2 exact answer excerpts (606 tokens). The prior gemini-2.5-flash-lite returned 404 for the new account, so the default was updated. This verifies live structured output and quote validation, not model quality or a hosted/account browser journey. Public demo remains local rubric only; real account UI still requires MongoDB. No billing settings were changed. Earlier missing-key statements above describe the initial checkpoint.
+
+## Atlas-backed live journey verified
+
+The owner authorized creation of the new dedicated interview_lab_v1 database. Atlas connectivity and additive index migration passed; initial database had no collections. Credentials are only in the ignored API .env. Local startup now uses STORE=mongo, DEMO_MODE=false and AI_PROVIDER=gemini at localhost:5004.
+
+A synthetic browser account completed 3 live questions + 1 live follow-up with consent, answer-grounded feedback and saved review. Review persisted after refresh and API restart. Authenticated Markdown export returned 200 with attachment and live disclosure. No page errors observed. Test account signed out; owner can create their own app account. This verifies the live local flow, not hiring accuracy or hosted deployment. Public HTTPS hosting remains pending; no billing settings changed.

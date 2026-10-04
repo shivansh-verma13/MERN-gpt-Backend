@@ -2,7 +2,7 @@
 
 A text interview practice product built by Shivansh Verma. Bring résumé/experience text and a job description, practice three role-specific questions with at most one follow-up, then review your answers and actionable feedback. This evolves the original MERN GPT project into a complete, bounded product.
 
-**Status:** local end-to-end demo verified. Real Gemini integration implemented but unverified without a key. No hosted release URL is claimed.
+**Status:** local end-to-end demo verified. Live Gemini and Atlas-backed account interviews verified locally with synthetic data. No hosted release URL is claimed.
 
 The actual UI screenshots are in the paired frontend repository.
 

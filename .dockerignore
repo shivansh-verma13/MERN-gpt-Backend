@@ -1,0 +1,9 @@
+node_modules
+dist
+legacy
+.git
+.env
+.env.*
+.data
+.release-web
+web

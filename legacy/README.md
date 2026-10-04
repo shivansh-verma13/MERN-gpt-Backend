@@ -1,0 +1,1 @@
+Original source retained for recovery. Never compiled or deployed by V2. Restore the parent commit of the upgrade branch to recover original source, manifest, and lockfile. Do not mix legacy models/auth with V2.

@@ -5,6 +5,8 @@
 [build.environment]
  NODE_VERSION = "22"
  NPM_FLAGS = "--include=dev"
+ # Public configuration constants are not credentials. Keep credential scanning enabled.
+ SECRETS_SCAN_OMIT_KEYS = "STORE,MONGODB_DB,DEMO_MODE,AI_PROVIDER,GEMINI_MODEL,NODE_ENV,APP_ORIGIN,AI_DAILY_LIMIT,AI_GLOBAL_DAILY_LIMIT"
  WEB_REF = "ecee40d563798147b4120ebf0f1f64ccba99a444"
 [functions]
  node_bundler = "esbuild"

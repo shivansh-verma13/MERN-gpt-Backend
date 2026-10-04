@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApp } from "../src/app.js";
 import { JsonStore } from "../src/store.js";
-// Build first: deployment adapter imports the compiled runtime but never starts a listener.
+// Factory tests use the supplied app; runtime initialization is lazy in the handler.
 // @ts-expect-error JavaScript function adapter has no declaration file.
 import { createFunction, createProxy } from "../netlify/functions/api.mjs";
 test("Render proxy preserves secure cookies, CSRF, audio bytes and bounded routing", async () => {

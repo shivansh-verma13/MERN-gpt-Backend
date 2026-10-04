@@ -1,5 +1,4 @@
 import serverless from "serverless-http";
-import { initializeRuntime } from "../../dist/runtime.js";
 export function createFunction(app) {
   const wrapped = serverless(app);
   return async (event, context) => {
@@ -62,7 +61,9 @@ let cached;
 export async function handler(event, context) {
   try {
     if (process.env.API_ORIGIN) return await createProxy(process.env.API_ORIGIN)(event);
-    cached ??= initializeRuntime(true).then(({ app }) => createFunction(app));
+    cached ??= import("../../dist/runtime.js")
+      .then(({ initializeRuntime }) => initializeRuntime(true))
+      .then(({ app }) => createFunction(app));
     const fn = await cached;
     return await fn(event, context);
   } catch (error) {

@@ -1,3 +1,4 @@
+import { raw } from "express";
 import type { Express, Request, Response, RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -15,6 +16,9 @@ import {
   activeQuestion,
   practiceReport,
   exportReview,
+  FormatInput,
+  IntegrityInput,
+  TranscriptOutput,
 } from "./interview.js";
 import type { Interview, ModelRequest } from "./interview.js";
 
@@ -161,6 +165,7 @@ export function registerInterviews(
     protect,
     wrap(async (req, res) => {
       const input = ProfileInput.extend({
+        format: FormatInput.default("text"),
         requestId: z.uuid(),
         consent: z.boolean(),
       }).parse(req.body);
@@ -208,6 +213,8 @@ export function registerInterviews(
         const interview: Interview = {
           id: randomUUID(),
           ownerId,
+          format: input.format,
+          integrity: [],
           profile,
           questions: plan.questions,
           cursor: 0,
@@ -266,6 +273,134 @@ export function registerInterviews(
     }),
   );
   app.post(
+    "/api/interviews/:id/events",
+    protect,
+    wrap(async (req, res) => {
+      const input = IntegrityInput.parse(req.body);
+      const id = String(req.params.id);
+      if (locks.has(id))
+        throw new HttpError(
+          409,
+          "Session update in progress; retry this event.",
+        );
+      locks.add(id);
+      try {
+        const v = await own(id, res.locals.user.id);
+        if (v.format !== "simulation")
+          throw new HttpError(
+            422,
+            "Integrity events are for simulation sessions.",
+          );
+        const events = v.integrity ?? [];
+        if (events.some((e) => e.id === input.id))
+          return res.json({ ok: true });
+        if (events.length >= 100)
+          throw new HttpError(429, "Integrity log is full.");
+        await store.update(
+          "interviews",
+          id,
+          { ownerId: v.ownerId, version: v.version },
+          { integrity: [...events, input] },
+        );
+        res.json({ ok: true });
+      } finally {
+        locks.delete(id);
+      }
+    }),
+  );
+  app.post(
+    "/api/interviews/:id/transcribe",
+    protect,
+    raw({
+      type: ["audio/webm", "audio/ogg", "audio/mp4", "audio/wav"],
+      limit: "4mb",
+    }),
+    wrap(async (req, res) => {
+      const id = String(req.params.id);
+      const v = await own(id, res.locals.user.id);
+      if (
+        !req.get("X-Interview-Version") ||
+        Number(req.get("X-Interview-Version")) !== v.version
+      )
+        throw new HttpError(
+          409,
+          "Session changed. Reload before transcribing.",
+        );
+      if (v.status !== "active")
+        throw new HttpError(409, "Session is complete.");
+      if (!Buffer.isBuffer(req.body) || req.body.length < 100)
+        throw new HttpError(422, "Send an audio clip in a supported format.");
+      if (req.get("X-Audio-Consent") !== "true")
+        throw new HttpError(422, "Audio processing consent is required.");
+      if (v.mode !== "live" || !config.transcribe)
+        throw new HttpError(
+          503,
+          "Live Gemini transcription is unavailable. Use the typed answer.",
+        );
+      if (locks.has(id))
+        throw new HttpError(409, "A session request is already running.");
+      locks.add(id);
+      const controller = new AbortController();
+      const close = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.on("close", close);
+      const timer = setTimeout(() => controller.abort(), config.timeout);
+      const started = performance.now();
+      try {
+        const day = new Date().toISOString().slice(0, 10);
+        if ((await store.reserve(v.ownerId, day, config.dailyLimit)) < 0)
+          throw new HttpError(429, "Daily practice request limit reached.");
+        if (
+          (await store.reserve(
+            "__provider_budget",
+            day,
+            config.globalDailyLimit ?? 30,
+          )) < 0
+        )
+          throw new HttpError(429, "Daily AI budget reached.");
+        const result = await Promise.race([
+          config.transcribe(
+            req.body,
+            String(req.get("Content-Type")).split(";")[0],
+            controller.signal,
+          ),
+          new Promise<never>((_, reject) =>
+            controller.signal.addEventListener(
+              "abort",
+              () => reject(new Error("Aborted")),
+              { once: true },
+            ),
+          ),
+        ]);
+        const output = TranscriptOutput.parse(result);
+        if (!output.transcript.trim())
+          throw new HttpError(
+            422,
+            "No intelligible speech found. Retry or type your answer.",
+          );
+        console.log(
+          JSON.stringify({
+            event: "transcription",
+            latencyMs: Math.round(performance.now() - started),
+            tokens: result.tokens,
+          }),
+        );
+        res.json(output);
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(
+          controller.signal.aborted ? 504 : 502,
+          "Transcription failed. Your clip stays available for retry.",
+        );
+      } finally {
+        clearTimeout(timer);
+        res.off("close", close);
+        locks.delete(id);
+      }
+    }),
+  );
+  app.post(
     "/api/interviews/:id/answers",
     protect,
     wrap(async (req, res) => {
@@ -275,6 +410,13 @@ export function registerInterviews(
           requestId: z.uuid(),
           version: z.number().int().min(0).max(4),
           consent: z.boolean(),
+          environment: z
+            .object({
+              fullscreen: z.boolean(),
+              camera: z.boolean(),
+              microphone: z.boolean(),
+            })
+            .optional(),
         })
         .parse(req.body);
       const id = String(req.params.id);
@@ -300,6 +442,16 @@ export function registerInterviews(
           throw new HttpError(
             422,
             "Please consent before requesting AI feedback.",
+          );
+        if (
+          interview.format === "simulation" &&
+          (!input.environment?.fullscreen ||
+            !input.environment.camera ||
+            !input.environment.microphone)
+        )
+          throw new HttpError(
+            409,
+            "Resume fullscreen with your camera and microphone before answering.",
           );
         const question = activeQuestion(interview)!;
         const kind = interview.pendingFollowUp

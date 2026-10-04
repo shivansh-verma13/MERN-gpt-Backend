@@ -55,6 +55,8 @@ export type Interview = {
   mode: "demo" | "live";
   createdAt: string;
   updatedAt: string;
+  format?: "text" | "audio" | "video" | "simulation";
+  integrity?: IntegrityEvent[];
 };
 export type ModelRequest = {
   task: "plan" | "review";
@@ -200,6 +202,14 @@ export function exportReview(interview: Interview) {
         ? "Local demo: template questions and text-rubric feedback; no AI calls."
         : "AI-assisted practice; feedback may be mistaken.",
       practiceReport(interview).disclaimer,
+      ...(interview.format === "simulation"
+        ? [
+            "## Browser session events — client reported, not proof of cheating",
+            ...(interview.integrity ?? []).map((e) =>
+              literal(e.type + " · " + e.at),
+            ),
+          ]
+        : []),
       ...interview.turns.flatMap((t, i) => [
         `\n## ${i + 1}. ${literal(t.question)}`,
         literal(t.answer),
@@ -214,3 +224,25 @@ export function exportReview(interview: Interview) {
     ].join("\n\n") + "\n"
   );
 }
+
+export const FormatInput = z.enum(["text", "audio", "video", "simulation"]);
+export const IntegrityInput = z.object({
+  id: z.uuid(),
+  type: z.enum([
+    "session_started",
+    "fullscreen_exit",
+    "fullscreen_return",
+    "page_hidden",
+    "window_blur",
+    "camera_ended",
+    "microphone_ended",
+  ]),
+  at: z.string().datetime(),
+});
+export type IntegrityEvent = z.infer<typeof IntegrityInput>;
+export const TranscriptOutput = z.object({ transcript: z.string().max(5000) });
+export type Transcribe = (
+  audio: Buffer,
+  mime: string,
+  signal: AbortSignal,
+) => Promise<{ transcript: string; tokens: number }>;

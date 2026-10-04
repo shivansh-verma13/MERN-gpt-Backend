@@ -102,3 +102,18 @@ Frontend: `src/components/PracticeSetup.tsx`, `PracticeSession.tsx`, `PracticeRe
 API: `src/interview.ts` schemas/state/rubric, `interview-routes.ts` ownership and flow, `interview-provider.ts` server adapters, `app.ts` auth/middleware, `store.ts` JSON/Mongo storage, `index.ts` startup, `tests/` integration tests and `scripts/evaluate.ts` validation cases.
 
 [Case study](docs/CASE_STUDY.md) · [Upgrade log](UPGRADE_LOG.md) · [Original project prioritization](docs/PROJECT_PRIORITY.md)
+
+
+## Audio, video and fullscreen simulation
+
+Four formats: text, audio, video and fullscreen simulation. Browser speech synthesis reads questions; a replay button is available. Audio recording is bounded to 2 minutes per answer and a 4 MB API upload. With separate explicit consent, the server sends audio to Gemini and validates an editable transcript. Transcription shares the existing per-user and global daily request budgets; a full spoken round can use 7–9 requests including question generation and feedback. Errors retain the local clip for retry; cancellation and device cleanup are supported. Local/demo mode never calls a provider. OpenAI-only configuration currently supports typed feedback, not transcription.
+
+Camera preview and optional per-answer video recording stay in the browser. A local video download must be saved before leaving the room. Video recordings are bounded to approximately 20 MB / 2 minutes and never uploaded. Raw audio is transiently buffered for provider processing and is not stored in MongoDB; edited answers and interruption events are persisted. Google provider data policies still apply to audio sent for transcription.
+
+Simulation requests fullscreen through a user action and requires camera/microphone permission. Exiting fullscreen, hiding the page or losing a media track pauses answering; resuming requires another user action. Start/exit/return, page-hidden, window-blur and device-loss events are bounded, owner-authorized and deduplicated. These are untrusted client signals, not proof of cheating. There is no gaze tracking, face analysis, screen capture or guarantee against external assistance. The API checks client-reported device/fullscreen state; a modified client can bypass those assertions. Event syncing is best effort, with a visible manual retry; unsynced events may be lost when leaving the page.
+
+Requires HTTPS or localhost, supported MediaRecorder formats and device permissions. Some mobile browsers do not support fullscreen; use audio/video practice in that case. Permissions are requested only after a visible action. Camera and microphone stop when leaving the room.
+
+Verification: 10 frontend tests (media devices/fullscreen mocked), 15 backend tests including real MongoMemoryServer, lint and production builds pass. Live authenticated Gemini transcription of a synthetic SAPI spoken sentence returned the expected text in 2,031 ms (one local sample, not a benchmark). Chrome used synthetic canvas/audio streams to verify actual fullscreen entry, exit, pause, resume, native MediaRecorder, local video download (85,598 bytes), and Atlas-persisted interruption events. Physical camera/microphone quality and Safari/mobile OS support still need owner-device testing. No new public deployment or dependencies.
+
+Final browser layout checks passed at 320, 375, 430, 768, 1024 and 1440 px with no horizontal overflow. Axe reported 0 violations in the media room; its video-caption manual check applies to the muted local preview, which contains no audio playback. Physical-device verification remains pending.

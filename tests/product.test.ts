@@ -568,3 +568,164 @@ test("authenticated Markdown export downloads real saved content, hides foreign 
     await f.close();
   }
 });
+test("simulation gates answers and persists deduplicated owner-only interruption events", async () => {
+  const f = await fixture();
+  try {
+    const u = await f.user("simulation@example.com"),
+      other = await f.user("foreign@example.com");
+    const { data: v } = await f.call(
+      "/api/interviews",
+      "POST",
+      { ...start(), format: "simulation" },
+      u,
+    );
+    assert.equal(v.format, "simulation");
+    const path = "/api/interviews/" + v.id;
+    assert.equal(
+      (await f.call(path + "/answers", "POST", submission(v), u)).response
+        .status,
+      409,
+    );
+    const e = {
+      id: randomUUID(),
+      type: "fullscreen_exit",
+      at: new Date().toISOString(),
+    };
+    assert.equal(
+      (await f.call(path + "/events", "POST", e, other)).response.status,
+      404,
+    );
+    assert.equal(
+      (await f.call(path + "/events", "POST", e, u)).response.status,
+      200,
+    );
+    await f.call(path + "/events", "POST", e, u);
+    assert.equal(
+      (await f.call(path, "GET", undefined, u)).data.integrity.length,
+      1,
+    );
+    assert.equal(
+      (
+        await f.call(
+          path + "/events",
+          "POST",
+          { ...e, type: "eye_tracking" },
+          u,
+        )
+      ).response.status,
+      422,
+    );
+    assert.equal(
+      (
+        await f.call(
+          path + "/answers",
+          "POST",
+          {
+            ...submission(v),
+            environment: { fullscreen: true, camera: true, microphone: true },
+          },
+          u,
+        )
+      ).response.status,
+      200,
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("audio transcription requires ownership, consent and current version and does not persist raw media", async () => {
+  let calls = 0;
+  const f = await fixture({
+    mode: "live",
+    interviewGenerate: async () => ({ output: demoPlan(profile), tokens: 1 }),
+    transcribe: async () => {
+      calls++;
+      return {
+        transcript: "I measured database latency before adding caching.",
+        tokens: 3,
+      };
+    },
+  });
+  try {
+    const u = await f.user("audio@example.com"),
+      other = await f.user("audio-foreign@example.com");
+    const { data: v } = await f.call(
+      "/api/interviews",
+      "POST",
+      { ...start(randomUUID(), true), format: "audio" },
+      u,
+    );
+    const send = (client = u, extra: Record<string, string> = {}) =>
+      fetch(f.base + "/api/interviews/" + v.id + "/transcribe", {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          Cookie: client.cookie,
+          "X-CSRF-Token": client.csrf,
+          "Content-Type": "audio/wav",
+          "X-Audio-Consent": "true",
+          "X-Interview-Version": "0",
+          ...extra,
+        },
+        body: Buffer.alloc(200),
+      });
+    assert.equal((await send(other)).status, 404);
+    assert.equal((await send(u, { "X-Audio-Consent": "false" })).status, 422);
+    assert.equal((await send(u, { "X-Interview-Version": "2" })).status, 409);
+    const r = await send();
+    assert.equal(r.status, 200);
+    assert.match((await r.json()).transcript, /database latency/);
+    assert.equal(calls, 1);
+    const saved = await f.store.get("interviews", v.id);
+    assert.equal(saved?.turns.length, 0);
+    assert.equal(saved?.version, 0);
+  } finally {
+    await f.close();
+  }
+});
+test("transcription provider failures and invalid output return recoverable errors", async () => {
+  for (const output of ["error", "invalid", "empty"]) {
+    const f = await fixture({
+      mode: "live",
+      interviewGenerate: async () => ({ output: demoPlan(profile), tokens: 1 }),
+      transcribe: async () => {
+        if (output === "error") throw Error("private provider error");
+        return {
+          transcript: output === "empty" ? "" : (null as unknown as string),
+          tokens: 1,
+        };
+      },
+    });
+    try {
+      const u = await f.user(output + "@example.com");
+      const { data: v } = await f.call(
+        "/api/interviews",
+        "POST",
+        { ...start(randomUUID(), true), format: "video" },
+        u,
+      );
+      const r = await fetch(
+        f.base + "/api/interviews/" + v.id + "/transcribe",
+        {
+          method: "POST",
+          headers: {
+            Origin: origin,
+            Cookie: u.cookie,
+            "X-CSRF-Token": u.csrf,
+            "Content-Type": "audio/webm",
+            "X-Audio-Consent": "true",
+            "X-Interview-Version": "0",
+          },
+          body: Buffer.alloc(200),
+        },
+      );
+      assert.equal(r.status, output === "empty" ? 422 : 502);
+      assert.doesNotMatch(
+        JSON.stringify(await r.json()),
+        /private provider error/,
+      );
+    } finally {
+      await f.close();
+    }
+  }
+});

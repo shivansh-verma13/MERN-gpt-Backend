@@ -4,6 +4,7 @@ import { JsonStore, MongoStore } from "./store.js";
 import { createApp } from "./app.js";
 import {
   geminiInterviewProvider,
+  geminiTranscriber,
   openAIInterviewProvider,
 } from "./interview-provider.js";
 const production = process.env.NODE_ENV === "production";
@@ -57,6 +58,14 @@ const app = createApp(store, {
       : provider === "openai"
         ? "OpenAI"
         : "Local demo",
+  transcribe:
+    provider === "gemini"
+      ? geminiTranscriber(
+          process.env.GEMINI_API_KEY!,
+          process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite",
+          timeout,
+        )
+      : undefined,
   interviewGenerate:
     provider === "gemini"
       ? geminiInterviewProvider(

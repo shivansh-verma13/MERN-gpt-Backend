@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { Store, User, Session } from "./types.js";
 import { hashPassword, checkPassword, secret, digest } from "./auth.js";
 import { registerInterviews } from "./interview-routes.js";
-import type { InterviewGenerate } from "./interview.js";
+import type { InterviewGenerate, Transcribe } from "./interview.js";
 export type Config = {
   origin: string;
   production: boolean;
@@ -20,6 +20,7 @@ export type Config = {
   timeout: number;
   interviewGenerate?: InterviewGenerate;
   provider?: string;
+  transcribe?: Transcribe;
   webRoot?: string;
 };
 export class HttpError extends Error {

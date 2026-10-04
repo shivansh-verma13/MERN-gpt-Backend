@@ -79,3 +79,14 @@ Earlier credential-transfer blocker resolved by explicit owner approval on Octob
 - Backend: all 16 tests pass, lint/build pass. Repeatable frontend release packaging against ecee40d563798147b4120ebf0f1f64ccba99a444 passed under NODE_ENV=production. Local Gemini/Atlas verification remains valid; no hosted AI success is claimed.
 - Resume: inspect Atlas network access and cluster status after owner login; fix the confirmed blocker with appropriate authorization. Run work/verify-hosted-interview.mjs for real hosted questions, feedback, saved review, replay, HTTPS cookie and CSRF checks. Browser verify login/history/review plus audio consent/transcription; keep physical hardware and live browser speech service testing separate from synthetic tests.
 - Then update this status, public portfolio project links and case study only after the hosted journey passes. No AI watermark or assistant attribution was added to commits. Next product remains Notes; do not start it yet.
+
+
+## Verified hosted release — October 5, 2026
+
+Earlier MongoDB deployment blockers are resolved. Live URL: https://shivansh-interview-lab.netlify.app/ . API: https://shivansh-interview-lab-api.onrender.com . Netlify proxies same-origin API requests to Render, preserving secure session cookies and CSRF validation. Render uses an Atlas user restricted to read/write on interview_lab_v1. Only the explicitly approved shared Render outbound ranges 74.220.52.0/24 and 74.220.60.0/24 were added; no all-IP rule was added. Secrets remain server-side.
+
+Hosted verification used synthetic data: signup/login, real Gemini three-question interview plus one follow-up, exact feedback quote validation, UUID replay, MongoDB reload/history, Markdown export and missing-CSRF rejection all passed. A synthetic spoken WAV produced a real Gemini transcript; the interview version and answer count stayed unchanged until submission. The live browser rendered the saved review with no captured console warnings/errors and no horizontal overflow at its observed 552px viewport. Desktop/mobile responsive checks and simulated media/fullscreen checks were previously performed locally; the browser viewport override did not change the hosted browser's actual width. Physical camera/microphone and browser speech-service behavior still need owner device verification.
+
+Checks: frontend lint/build passed; backend lint/typecheck/build and 18 tests passed; nine deterministic AI evaluation cases passed. GitHub Quality checks run 37229146025 passed after making the compiled runtime import lazy. No independent Sonar scan is claimed.
+
+Free Render services sleep after 15 minutes idle and may take about a minute to wake. Public AI limits remain 10 requests/user/day and 30 requests/day globally; these are request limits, not a currency guarantee. Fullscreen interruption tracking cannot prevent help from another device. No paid resources, domain changes, assistant attribution or AI watermark were introduced.

@@ -25,3 +25,14 @@ Interview Lab is a full-stack interview-practice product with résumé/job conte
 ## Next work
 
 Verify Gemini against a small synthetic labeled evaluation set; review feedback relevance and incorrect technical advice manually. Deploy a bounded preview with HTTPS/Mongo, then verify account and practice persistence end to end. Add PDF ingestion only if users need it. Keep voice and coding execution out of this release.
+
+
+## Verified hosted release — October 5, 2026
+
+Earlier MongoDB deployment blockers are resolved. Live URL: https://shivansh-interview-lab.netlify.app/ . API: https://shivansh-interview-lab-api.onrender.com . Netlify proxies same-origin API requests to Render, preserving secure session cookies and CSRF validation. Render uses an Atlas user restricted to read/write on interview_lab_v1. Only the explicitly approved shared Render outbound ranges 74.220.52.0/24 and 74.220.60.0/24 were added; no all-IP rule was added. Secrets remain server-side.
+
+Hosted verification used synthetic data: signup/login, real Gemini three-question interview plus one follow-up, exact feedback quote validation, UUID replay, MongoDB reload/history, Markdown export and missing-CSRF rejection all passed. A synthetic spoken WAV produced a real Gemini transcript; the interview version and answer count stayed unchanged until submission. The live browser rendered the saved review with no captured console warnings/errors and no horizontal overflow at its observed 552px viewport. Desktop/mobile responsive checks and simulated media/fullscreen checks were previously performed locally; the browser viewport override did not change the hosted browser's actual width. Physical camera/microphone and browser speech-service behavior still need owner device verification.
+
+Checks: frontend lint/build passed; backend lint/typecheck/build and 18 tests passed; nine deterministic AI evaluation cases passed. GitHub Quality checks run 37229146025 passed after making the compiled runtime import lazy. No independent Sonar scan is claimed.
+
+Free Render services sleep after 15 minutes idle and may take about a minute to wake. Public AI limits remain 10 requests/user/day and 30 requests/day globally; these are request limits, not a currency guarantee. Fullscreen interruption tracking cannot prevent help from another device. No paid resources, domain changes, assistant attribution or AI watermark were introduced.

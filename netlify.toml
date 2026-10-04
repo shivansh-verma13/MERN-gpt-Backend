@@ -4,6 +4,7 @@
  functions = "netlify/functions"
 [build.environment]
  NODE_VERSION = "22"
+ NPM_FLAGS = "--include=dev"
  WEB_REF = "ecee40d563798147b4120ebf0f1f64ccba99a444"
 [functions]
  node_bundler = "esbuild"

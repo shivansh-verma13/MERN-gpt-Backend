@@ -43,7 +43,7 @@ console.log(
       encoding: "utf8",
     }).trim(),
 );
-for (const args of [["ci"], ["run", "build"]])
+for (const args of [["ci", "--include=dev"], ["run", "build"]])
   execFileSync(process.execPath, [npm, ...args], {
     cwd: staging,
     stdio: "inherit",

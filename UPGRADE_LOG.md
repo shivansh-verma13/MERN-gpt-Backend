@@ -17,3 +17,7 @@
 ## Checkpoint
 
 Read README, docs/VERIFICATION.md and docs/DEPLOYMENT.md. Continue from the coordinated Interview Lab branches; do not redo discovery or restore Briefcase as active UI. Configure Gemini via a server secret and a dedicated database, run synthetic live evaluation, then deploy and verify the complete journey in a new preview. Keep existing production and historical database recoverable.
+
+## Live Gemini configuration check
+
+The owner supplied a key, saved only in the API ignored `.env`. Two direct synthetic provider requests passed using gemini-3.5-flash-lite: 3-question plan (357 tokens) and feedback with 2 exact answer excerpts (606 tokens). The prior gemini-2.5-flash-lite returned 404 for the new account, so the default was updated. This verifies live structured output and quote validation, not model quality or a hosted/account browser journey. Public demo remains local rubric only; real account UI still requires MongoDB. No billing settings were changed. Earlier missing-key statements above describe the initial checkpoint.

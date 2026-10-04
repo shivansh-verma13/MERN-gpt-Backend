@@ -28,3 +28,7 @@ The initial local demo session limit was explicitly raised to 50 for browser tes
 Remaining: Gemini key, dedicated Mongo deployment, HTTPS Node preview host, and live synthetic quality review. Single-instance locks/IP limits, text-only résumé import, no voice/PDF ingestion, no password recovery/email verification or automated retention. Existing production was not modified.
 
 Packaged same-origin release: `npm run prepare:web` passes with full WEB_REF=ea0e492bb71f5098f76797ff0e97674e1b7e3d26. Browser starts a practice session with the packaged frontend and compiled API. Use a full 40-character SHA when pinning a commit; abbreviated SHA fetches are unsupported. Frontend GitHub CI passed for that revision.
+
+## Live Gemini configuration check
+
+The owner supplied a key, saved only in the API ignored `.env`. Two direct synthetic provider requests passed using gemini-3.5-flash-lite: 3-question plan (357 tokens) and feedback with 2 exact answer excerpts (606 tokens). The prior gemini-2.5-flash-lite returned 404 for the new account, so the default was updated. This verifies live structured output and quote validation, not model quality or a hosted/account browser journey. Public demo remains local rubric only; real account UI still requires MongoDB. No billing settings were changed. Earlier missing-key statements above describe the initial checkpoint.

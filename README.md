@@ -55,7 +55,7 @@ The frontend has **no provider credentials**. Set server variables in the API `.
 | `DEMO_FILE`                      | `.data/interview-demo.json`; persistent local demo file           |
 | `MONGODB_URL`, `MONGODB_DB`      | Required for real accounts; dedicated `interview_lab_v1` database |
 | `AI_PROVIDER`                    | `demo`, `gemini`, or `openai`                                     |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Server key and `gemini-2.5-flash-lite` default                    |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Server key and `gemini-3.5-flash-lite` default                    |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Optional adapter, `gpt-4o-mini` default                           |
 | `AI_DAILY_LIMIT`                 | 10 requests per user/day, including question preparation          |
 | `AI_GLOBAL_DAILY_LIMIT`          | 30 live attempts/day across users                                 |
